@@ -115,6 +115,7 @@ def frame(state: AppState, active: str | None):
 
 
 def register_pages(state: AppState) -> None:
+    from ytt.ui.project_page import project_content
     from ytt.ui.settings_page import settings_content
 
     @ui.page("/")
@@ -131,3 +132,8 @@ def register_pages(state: AppState) -> None:
     def settings() -> None:
         with frame(state, "settings"):
             settings_content(state)
+
+    @ui.page("/project/{slug}")
+    def project(slug: str) -> None:
+        with frame(state, slug):
+            project_content(state, slug)

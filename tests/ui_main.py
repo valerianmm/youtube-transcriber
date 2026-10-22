@@ -13,9 +13,4 @@ ui_support.STATE = state
 register_pages(state)
 
 
-@ui.page("/project/{slug}")
-def _project_stub(slug: str) -> None:  # real page arrives in a later task
-    ui.label(state.projects.get(slug).name)
-
-
 ui.run(storage_secret="test")
