@@ -47,6 +47,7 @@ def test_paths_layout(tmp_path):
     paths.ensure_layout()
     assert paths.index == tmp_path / "transcripts" / "index.json"
     assert paths.audio_cache == tmp_path / ".cache" / "audio"
+    assert paths.doc_types == tmp_path / "document-types"
     for d in (paths.transcripts, paths.doc_types, paths.projects, paths.audio_cache):
         assert d.is_dir()
 

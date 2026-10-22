@@ -34,7 +34,7 @@ The data root defaults to `~/YouTube Transcriber/`. Change it in Settings; the n
   transcripts/                       shared library, one .txt per video
     index.json                       video metadata, language, status, errors
     <channel>/<YYYY-MM-DD>_<title> [<video_id>].txt
-  doc_types/                         one .md per document type (summary, step-by-step guide, yours)
+  document-types/                    one .md per document type (summary, step-by-step guide, yours)
     .trash/                          deleted document types
   projects/
     <project name>/
@@ -48,7 +48,7 @@ The data root defaults to `~/YouTube Transcriber/`. Change it in Settings; the n
 Notes:
 
 - There is one transcript per video, shared by all projects. An existing transcript is always reused; to redo one, use Re-transcribe on that video.
-- Deleting a project moves its folder to the macOS Trash (transcripts stay in the library). Deleting a document type moves its file to `doc_types/.trash/`.
+- Deleting a project moves its folder to the macOS Trash (transcripts stay in the library). Deleting a document type moves its file to `document-types/.trash/`.
 - Everything is plain files, so you can read them in Finder or any editor.
 
 ## Updating yt-dlp
@@ -66,7 +66,7 @@ This upgrades yt-dlp in the lock file, syncs, and starts the app.
 - **YouTube errors (download fails, "Sign in", unavailable formats):** run `./run.sh --update-ytdlp`.
 - **PDF export errors:** pango is missing or not found. Run `brew install pango`. `run.sh` sets `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` for you.
 - **Claude errors:** in subscription mode, make sure the `claude` CLI is installed and logged in (run `claude` once in a terminal). Otherwise switch to API key mode in Settings and enter a key.
-- **"Already running":** the app opens the existing instance in your browser instead of starting a second one. If nothing is actually running, check for a stale process on port 8765.
+- **"Already running":** the app opens the existing instance in your browser instead of starting a second one. If nothing seems to be running, find what's using the port: `lsof -i :8765` (an earlier instance or another program).
 - **ffmpeg missing:** `brew install ffmpeg`.
 
 ## Tests

@@ -84,7 +84,7 @@ class Paths:
 
     @property
     def doc_types(self) -> Path:
-        return self.root / "doc_types"
+        return self.root / "document-types"
 
     @property
     def projects(self) -> Path:
