@@ -42,7 +42,8 @@ def test_unique_names(docs, slug):
 
 
 def test_long_name_fits_filename_limit(docs, slug):
-    meta = docs.create(slug, "é" * 300, "t", "a")
+    meta = docs.create(slug, "🎉" * 80, "t", "a")
+    assert len(meta.file[: -len(".md")].encode()) <= 200
     assert len(meta.file.encode()) + 23 <= 255
 
 
@@ -80,3 +81,50 @@ def test_pdf_unavailable_message(tmp_path, monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake)
     with pytest.raises(PdfUnavailable, match="brew install pango"):
         markdown_to_pdf("# x", tmp_path / "a.pdf")
+
+
+def test_pdf_filesystem_error_is_not_pdf_unavailable(tmp_path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x")
+    with pytest.raises(OSError) as ei:
+        markdown_to_pdf("# x", blocker / "a.pdf")
+    assert not isinstance(ei.value, PdfUnavailable)
+
+
+def _conflict_once(docs, slug, monkeypatch):
+    real = docs.projects.save
+    calls = []
+
+    def save(project):
+        if not calls:
+            calls.append(1)
+            f = docs.projects.project_dir(slug) / "project.json"
+            f.write_text(f.read_text() + "\n")  # outside edit
+        return real(project)
+
+    monkeypatch.setattr(docs.projects, "save", save)
+
+
+def test_save_survives_project_json_conflict(docs, slug, monkeypatch):
+    meta = docs.create(slug, "Guide", "t", "v1")
+    _, fp = docs.read(slug, meta.file)
+    _conflict_once(docs, slug, monkeypatch)
+    new_fp = docs.save(slug, meta.file, "v2", expect=fp)
+    assert docs.read(slug, meta.file) == ("v2", new_fp)
+    assert docs.projects.get(slug).documents[0].edited_at
+
+
+def test_delete_survives_project_json_conflict(docs, slug, monkeypatch):
+    meta = docs.create(slug, "Guide", "t", "v1")
+    _conflict_once(docs, slug, monkeypatch)
+    docs.delete(slug, meta.file)
+    assert docs.projects.get(slug).documents == []
+
+
+def test_rejected_save_adds_no_history(docs, slug):
+    meta = docs.create(slug, "Guide", "t", "v1")
+    _, fp = docs.read(slug, meta.file)
+    (docs.projects.project_dir(slug) / "documents" / meta.file).write_text("x")
+    with pytest.raises(ConflictError):
+        docs.save(slug, meta.file, "mine", expect=fp)
+    assert not (docs.projects.project_dir(slug) / ".history" / "Guide").exists()

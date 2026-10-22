@@ -25,7 +25,7 @@ def sanitize(name: str, max_len: int = 80) -> str:
     return cleaned or "untitled"
 
 
-def _trim_bytes(text: str, max_bytes: int) -> str:
+def trim_utf8_bytes(text: str, max_bytes: int) -> str:
     """Truncate on a character boundary so the UTF-8 encoding fits max_bytes."""
     if len(text.encode("utf-8")) <= max_bytes:
         return text
@@ -99,11 +99,11 @@ class Library:
 
     def transcript_path_for(self, info: VideoInfo) -> Path:
         channel = sanitize(info.channel) if info.channel.strip() else "Unknown channel"
-        channel = _trim_bytes(channel, _MAX_DIR_BYTES) or "Unknown channel"
+        channel = trim_utf8_bytes(channel, _MAX_DIR_BYTES) or "Unknown channel"
         date_part = info.upload_date.isoformat() if info.upload_date else "unknown-date"
         prefix, suffix = f"{date_part}_", f" [{info.id}].txt"
         budget = _MAX_NAME_BYTES - len((prefix + suffix).encode("utf-8"))
-        title = _trim_bytes(sanitize(info.title), max(budget, 0)) or "untitled"
+        title = trim_utf8_bytes(sanitize(info.title), max(budget, 0)) or "untitled"
         name = f"{prefix}{title}{suffix}"
         return self.paths.transcripts / channel / name
 

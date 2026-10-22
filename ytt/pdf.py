@@ -23,6 +23,10 @@ th, td { border: 1px solid #ccc; padding: 0.3em 0.6em; }
 """
 
 
+def _refuse_fetch(url, *args, **kwargs):
+    raise ValueError(f"External resources are not allowed in exports: {url}")
+
+
 class PdfUnavailable(Exception):
     pass
 
@@ -36,15 +40,20 @@ def markdown_to_pdf(md: str, out: Path) -> None:
     )
     try:
         from weasyprint import HTML
-
-        out.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(dir=out.parent, prefix=f".{out.name}.", suffix=".tmp")
-        os.close(fd)
-        tmp = Path(tmp_name)
-        try:
-            HTML(string=html).write_pdf(str(tmp))
-            os.replace(tmp, out)
-        finally:
-            tmp.unlink(missing_ok=True)
     except (ImportError, OSError) as e:
         raise PdfUnavailable(_MESSAGE) from e
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=out.parent, prefix=f".{out.name}.", suffix=".tmp")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        try:
+            HTML(string=html, url_fetcher=_refuse_fetch).write_pdf(str(tmp))
+        except OSError as e:
+            if isinstance(e, (FileNotFoundError, PermissionError)) or e.errno:
+                raise
+            raise PdfUnavailable(_MESSAGE) from e
+        os.replace(tmp, out)
+    finally:
+        tmp.unlink(missing_ok=True)

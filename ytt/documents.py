@@ -5,11 +5,13 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from ytt.library import sanitize
+from ytt.library import sanitize, trim_utf8_bytes
 from ytt.pdf import markdown_to_pdf
 from ytt.projects import DocumentMeta, ProjectStore
 from ytt.storage import (
+    ConflictError,
     Fingerprint,
+    fingerprint,
     atomic_write_text,
     read_text,
     save_history,
@@ -22,12 +24,6 @@ _MAX_STEM_BYTES = 200
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
-
-
-def _trim(text: str, max_bytes: int) -> str:
-    if len(text.encode("utf-8")) <= max_bytes:
-        return text
-    return text.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore").strip(". ")
 
 
 class DocumentStore:
@@ -44,19 +40,32 @@ class DocumentStore:
     def _snapshot(self, slug: str, file: str) -> None:
         save_history(self._path(slug, file), self.projects.project_dir(slug) / ".history")
 
+    def _update_project(self, slug: str, mutate) -> None:
+        """Apply mutate(project) and save; retry once if project.json changed meanwhile."""
+        for attempt in (1, 2):
+            project = self.projects.get(slug)
+            mutate(project)
+            try:
+                self.projects.save(project)
+                return
+            except ConflictError:
+                if attempt == 2:
+                    raise
+
     def _update_meta(self, slug: str, file: str, **changes) -> None:
-        project = self.projects.get(slug)
-        for meta in project.documents:
-            if meta.file == file:
-                for k, v in changes.items():
-                    setattr(meta, k, v)
-        self.projects.save(project)
+        def mutate(project):
+            for meta in project.documents:
+                if meta.file == file:
+                    for k, v in changes.items():
+                        setattr(meta, k, v)
+
+        self._update_project(slug, mutate)
 
     def create(self, slug: str, name: str, doc_type: str, markdown: str) -> DocumentMeta:
         with self._lock:
             project = self.projects.get(slug)
             used = {m.file.casefold() for m in project.documents}
-            stem = _trim(sanitize(name), _MAX_STEM_BYTES) or "untitled"
+            stem = trim_utf8_bytes(sanitize(name), _MAX_STEM_BYTES) or "untitled"
             file, n = f"{stem}.md", 1
             while file.casefold() in used or self._path(slug, file).exists():
                 n += 1
@@ -74,8 +83,12 @@ class DocumentStore:
 
     def save(self, slug: str, file: str, text: str, expect: Fingerprint) -> Fingerprint:
         with self._lock:
+            path = self._path(slug, file)
+            current = fingerprint(path)
+            if current != expect:
+                raise ConflictError(path, current)
             self._snapshot(slug, file)
-            fp = atomic_write_text(self._path(slug, file), text, expect=expect)
+            fp = atomic_write_text(path, text, expect=expect)
             self._update_meta(slug, file, edited_at=_now())
             return fp
 
@@ -90,9 +103,10 @@ class DocumentStore:
         with self._lock:
             self._snapshot(slug, file)
             self._path(slug, file).unlink(missing_ok=True)
-            project = self.projects.get(slug)
-            project.documents = [m for m in project.documents if m.file != file]
-            self.projects.save(project)
+            self._update_project(
+                slug,
+                lambda p: setattr(p, "documents", [m for m in p.documents if m.file != file]),
+            )
 
     def _export_path(self, slug: str, file: str, suffix: str) -> Path:
         return self.projects.project_dir(slug) / "exports" / f"{Path(file).stem}{suffix}"
