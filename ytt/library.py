@@ -25,6 +25,19 @@ def sanitize(name: str, max_len: int = 80) -> str:
     return cleaned or "untitled"
 
 
+def _trim_bytes(text: str, max_bytes: int) -> str:
+    """Truncate on a character boundary so the UTF-8 encoding fits max_bytes."""
+    if len(text.encode("utf-8")) <= max_bytes:
+        return text
+    return text.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore").strip(". ")
+
+
+# macOS limits a filename component to 255 bytes. The longest name written is
+# storage's temp file ".<final>.part.<12 hex>.tmp" = len(final) + 23 bytes.
+_MAX_NAME_BYTES = 255 - 23
+_MAX_DIR_BYTES = 200
+
+
 def languages_mismatch(whisper: str | None, youtube: str | None) -> bool:
     if not whisper or not youtube:
         return False
@@ -86,8 +99,12 @@ class Library:
 
     def transcript_path_for(self, info: VideoInfo) -> Path:
         channel = sanitize(info.channel) if info.channel.strip() else "Unknown channel"
+        channel = _trim_bytes(channel, _MAX_DIR_BYTES) or "Unknown channel"
         date_part = info.upload_date.isoformat() if info.upload_date else "unknown-date"
-        name = f"{date_part}_{sanitize(info.title)} [{info.id}].txt"
+        prefix, suffix = f"{date_part}_", f" [{info.id}].txt"
+        budget = _MAX_NAME_BYTES - len((prefix + suffix).encode("utf-8"))
+        title = _trim_bytes(sanitize(info.title), max(budget, 0)) or "untitled"
+        name = f"{prefix}{title}{suffix}"
         return self.paths.transcripts / channel / name
 
     def read_transcript(self, video_id: str) -> str:

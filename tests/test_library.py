@@ -89,3 +89,10 @@ def test_mark_failed_records_error(lib, info):
 def test_cleanup_partials(lib, info):
     p = lib.transcript_path_for(info).with_suffix(".txt.part"); p.parent.mkdir(parents=True); p.write_text("half")
     assert lib.cleanup_partials() == [info.id] and not p.exists()
+
+
+@pytest.mark.parametrize("title", ["日本語" * 40, "🎉" * 80])
+def test_long_non_latin_titles_fit_filesystem_limits(lib, info, title):
+    rec = lib.write_transcript(replace(info, title=title), TranscriptResult("x", "ja"), "large-v3-turbo")
+    assert lib.read_transcript(info.id) == "x"
+    assert len((lib.paths.transcripts / rec.path).name.encode()) <= 232
