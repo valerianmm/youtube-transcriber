@@ -166,6 +166,6 @@ def test_download_audio_error_is_friendly(monkeypatch, tmp_path):
 
 @pytest.mark.live
 def test_live_expand_playlist():
-    # Small public playlist (YouTube's "Me at the zoo"-era sample); adjust if it disappears.
-    infos = expand(classify("https://www.youtube.com/playlist?list=PLFsQleAWXsj_4yDeebiIADdH5FMayBiJo"))
+    # Short public playlist (2 videos, verified with yt-dlp 2026-10-22); adjust if it disappears.
+    infos = expand(classify("https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"))
     assert infos and all(i.id for i in infos)
