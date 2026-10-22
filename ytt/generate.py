@@ -28,7 +28,8 @@ TOO_LARGE = "This project is too large to combine into one document. Try splitti
 
 
 def build_prompt(dt: DocType, items: list[tuple[VideoInfo, str]]) -> str:
-    parts = [dt.body.strip(), NO_SOURCES_LINE]
+    header = f"Document type: {dt.name}" + (f" — {dt.description}" if dt.description else "")
+    parts = [header, dt.body.strip(), NO_SOURCES_LINE]
     for n, (info, text) in enumerate(items, 1):
         parts.append(f"### Video {n}: {info.title}\n\n{text}")
     return "\n\n".join(parts)

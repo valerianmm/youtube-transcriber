@@ -78,3 +78,11 @@ def test_notes_still_too_large_raises(monkeypatch):
     b = FakeBackend(reply="z" * 1500)
     with pytest.raises(ClaudeError, match="too large"):
         generate_document(b, "m", DT, [(vi("a"), "x" * 3000), (vi("b"), "y" * 3000)])
+
+
+def test_prompt_starts_with_doc_type_name_and_description():
+    b = FakeBackend()
+    generate_document(b, "m", DT, [(vi("a"), "alpha")])
+    assert b.prompts[0].startswith("Document type: Summary — d\n\n## Template body")
+    no_desc = DocType(slug="x", name="X", description="", body="B")
+    assert generate.build_prompt(no_desc, []).startswith("Document type: X\n\nB")
