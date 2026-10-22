@@ -1,0 +1,22 @@
+[project]
+name = "youtube-transcriber"
+version = "0.1.0"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "nicegui",
+    "mlx-whisper",
+    "yt-dlp",
+    "anthropic",
+    "claude-agent-sdk",
+    "markdown",
+    "weasyprint",
+]
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio"]
+
+[tool.pytest.ini_options]
+markers = ["live: hits network/GPU/Claude"]
+addopts = "-m 'not live'"
+asyncio_mode = "auto"
+pythonpath = ["."]
