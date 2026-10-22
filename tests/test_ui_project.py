@@ -41,7 +41,7 @@ async def test_paste_preview_add(user, state, slug):
     await user.should_see("0 of 3 transcribed")
     assert len(state.projects.get(slug).videos()) == 3
     # rows are built lazily on expand
-    user.find(kind=ui.expansion).elements.pop().set_value(True)
+    user.find(marker="source").elements.pop().set_value(True)
     await user.should_see("queued")
 
 
@@ -68,7 +68,7 @@ async def test_mismatch_badge_shown(user, state, slug):
     seed_source(state, slug, [info])
     state.library.write_transcript(info, TranscriptResult(text="hallo", language="en"), "large-v3-turbo")
     await user.open(f"/project/{slug}")
-    user.find(kind=ui.expansion).elements.pop().set_value(True)
+    user.find(marker="source").elements.pop().set_value(True)
     await user.should_see("⚠")
     await user.should_see("Whisper heard en, YouTube says de")
     await user.should_see("done")
@@ -79,7 +79,7 @@ async def test_failed_status_shows_reason(user, state, slug):
     seed_source(state, slug, [info])
     state.library.mark_failed(info, "Private video")
     await user.open(f"/project/{slug}")
-    user.find(kind=ui.expansion).elements.pop().set_value(True)
+    user.find(marker="source").elements.pop().set_value(True)
     await user.should_see("failed: Private video")
 
 
@@ -89,7 +89,7 @@ async def test_retranscribe_dialog_lists_affected_projects(user, state, slug):
     other = state.projects.create("Other").slug
     seed_source(state, other, [info])
     await user.open(f"/project/{slug}")
-    user.find(kind=ui.expansion).elements.pop().set_value(True)
+    user.find(marker="source").elements.pop().set_value(True)
     user.find(kind=ui.menu_item).click()
     await user.should_see("This replaces the transcript in every project that uses this video")
     await user.should_see("• Demo")

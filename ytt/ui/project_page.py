@@ -279,7 +279,7 @@ def _source_row(state, slug, source, statuses, chips, counts, refresh, dialog_ho
     header = f"{source.title} · {source.kind}"
     if _range_text(source):
         header += f" · {_range_text(source)}"
-    with ui.expansion().classes("w-full border rounded") as expansion:
+    with ui.expansion().classes("w-full border rounded").mark("source") as expansion:
         with expansion.add_slot("header"):
             with ui.row().classes("items-center w-full gap-2"):
                 ui.label(header).classes("grow truncate")
