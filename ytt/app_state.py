@@ -93,17 +93,20 @@ class AppState:
     ) -> None:
         """previews: items of preview_source (extra tuple members are ignored)."""
         project = self.projects.get(slug)
+        added: list[Source] = []
         for item in previews:
             parsed, infos = item[0], item[1]
             if parsed.kind == "invalid" or not infos:
                 continue
+            # expand() does not expose playlist titles, so playlists fall back to the URL.
             if parsed.kind == "video":
                 title = infos[0].title
-            else:
+            elif parsed.kind == "channel":
                 title = infos[0].channel or parsed.url
+            else:
+                title = parsed.url
             is_channel = parsed.kind == "channel"
-            project.sources.append(
-                Source(
+            source = Source(
                     kind=parsed.kind,
                     url=parsed.url,
                     title=title,
@@ -111,12 +114,20 @@ class AppState:
                     date_from=date_from.isoformat() if is_channel and date_from else None,
                     date_to=date_to.isoformat() if is_channel and date_to else None,
                     videos=list(infos),
-                )
             )
+            project.sources.append(source)
+            added.append(source)
         self.projects.save(project)
         project = self.projects.get(slug)
-        for info in project.videos():
-            if info.id not in project.cancelled:
+        seen: set[str] = set()
+        for source in added:
+            for info in source.videos:
+                if info.id in seen or info.id in project.cancelled:
+                    continue
+                seen.add(info.id)
+                rec = self.library.get(info.id)
+                if rec is not None and rec.status == "failed":
+                    continue
                 self._enqueue(project, info)
 
     def refresh_source(self, slug: str, source_id: str) -> list[VideoInfo]:
@@ -148,6 +159,12 @@ class AppState:
                 out[info.id] = "failed" if rec and rec.status == "failed" else "queued"
         return out
 
+    def _is_pending(self, project: Project, info: VideoInfo) -> bool:
+        if info.id in project.cancelled or self.library.is_done(info.id):
+            return False
+        rec = self.library.get(info.id)
+        return not (rec and rec.status == "failed")
+
     def retry_failed(self, slug: str) -> int:
         project = self.projects.get(slug)
         todo: list[VideoInfo] = []
@@ -164,10 +181,13 @@ class AppState:
         return len(todo)
 
     def cancel_queued(self, slug: str) -> list[str]:
+        project = self.projects.get(slug)
+        queued = {v.id for v in project.videos() if self.queue.stage_of(v.id) == "queued"}
         dropped = self.queue.cancel_project(slug)
-        if dropped:
+        cancelled = queued | set(dropped)
+        if cancelled:
             project = self.projects.get(slug)
-            project.cancelled |= set(dropped)
+            project.cancelled |= cancelled
             self.projects.save(project)
         return dropped
 
@@ -196,7 +216,10 @@ class AppState:
         project = self.projects.get(slug)
         videos = project.videos()
         left_out = [v for v in videos if not self.library.is_done(v.id)]
-        busy = any(self.queue.stage_of(v.id) is not None for v in videos)
+        busy = any(
+            self.queue.stage_of(v.id) is not None or self._is_pending(project, v)
+            for v in left_out
+        )
         has_done = len(left_out) < len(videos)
         return (has_done and not busy), left_out
 

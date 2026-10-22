@@ -39,8 +39,10 @@ class FakeQueue:
 class FakeBackend:
     def __init__(self, error=None):
         self.error = error
+        self.prompts = []
 
     def generate(self, prompt, model):
+        self.prompts.append(prompt)
         if self.error:
             raise self.error
         return "# Generated"
@@ -80,7 +82,9 @@ def make_project(state):
 
 @pytest.fixture
 def fake_backend(monkeypatch):
-    monkeypatch.setattr("ytt.app_state.backend_for", lambda s: FakeBackend())
+    backend = FakeBackend()
+    monkeypatch.setattr("ytt.app_state.backend_for", lambda s: backend)
+    return backend
 
 
 @pytest.fixture
@@ -252,3 +256,40 @@ def test_update_settings_and_data_root(state, tmp_path):
     state.change_data_root(tmp_path / "elsewhere")
     assert str(tmp_path / "elsewhere") in (app_support_dir() / "config.json").read_text()
     assert state.paths.root == tmp_path / "data_root"
+
+
+def test_add_sources_does_not_retry_existing_failed(state, make_project):
+    slug = make_project(videos=["a", "b"], failed=["a"])
+    state.add_sources(slug, [(classify("https://youtu.be/n"), [info("n")], None)], None)
+    assert [j.info.id for j in state.queue.jobs] == ["n"]
+
+
+def test_cancel_queued_records_shared_video(state, make_project):
+    s1 = make_project(videos=["a"], name="One")
+    s2 = make_project(videos=["a"], name="Two")
+    state.requeue_pending()
+    state.queue.jobs[0].projects = {s1, s2}
+    state.cancel_queued(s1)
+    assert state.projects.get(s1).cancelled == {"a"}
+
+
+def test_not_ready_with_unenqueued_pending_video(state, make_project):
+    slug = make_project(videos=["a", "b"], done=["a"])
+    assert state.ready_to_generate(slug)[0] is False
+
+
+def test_generate_sends_only_done_transcripts_in_order(state, make_project, fake_backend):
+    slug = make_project(videos=["c", "b", "a"], done=["a", "c"], failed=["b"])
+    state.generate(slug, "summary", "S")
+    prompt = fake_backend.prompts[0]
+    assert "text a" in prompt and "text c" in prompt and "text b" not in prompt
+    assert prompt.index("text c") < prompt.index("text a")
+
+
+def test_source_language_beats_project_language(state, make_project):
+    slug = make_project(videos=["a"], language="fr")
+    p = state.projects.get(slug)
+    p.sources[0].language = "es"
+    state.projects.save(p)
+    state.requeue_pending()
+    assert state.queue.jobs[0].language == "es"
