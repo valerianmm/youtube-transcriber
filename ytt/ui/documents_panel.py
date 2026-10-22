@@ -231,14 +231,19 @@ def documents_panel(state: AppState, slug: str) -> None:
         try:
             sync_busy()
             doc_list.refresh()
-            select_after(meta.file)
+            select_after(meta, replace_file)
         except RuntimeError:
             pass  # the page was closed or reloaded meanwhile; the new page's timer refreshes
         return True
 
-    def select_after(file: str) -> None:
-        cur["file"] = None  # a fresh result replaces whatever was open
-        select(file)
+    def select_after(meta, replace_file: str | None) -> None:
+        if replace_file is not None and cur["file"] == replace_file:
+            cur["file"] = None  # the Regenerate confirm already warned about unsaved edits
+            select(meta.file)
+        elif dirty():  # never switch away from unsaved edits on our own
+            ui.notify(f"'{meta.name}' is ready")
+        else:
+            select(meta.file)
 
     def regenerate() -> None:
         file = cur["file"]

@@ -272,3 +272,55 @@ async def test_doctype_switch_with_unsaved_edits_confirms(user, state):
     await asyncio.sleep(0.3)
     assert editor(user, "doctype-editor").value.startswith("## Structure")
     assert user.find(marker="doctype-name").elements.pop().value == "Step-by-step guide"
+
+
+class GatedBackend(FakeBackend):
+    """Blocks inside generate() until released, so the test can edit meanwhile."""
+
+    def __init__(self):
+        super().__init__()
+        import threading
+        self.release = threading.Event()
+
+    def generate(self, prompt, model):
+        assert self.release.wait(5)
+        return super().generate(prompt, model)
+
+
+async def test_finished_generation_keeps_unsaved_edits(user, state, ready_slug, monkeypatch):
+    backend = GatedBackend()
+    backend.release.set()
+    monkeypatch.setattr("ytt.app_state.backend_for", lambda s: backend)
+    await generate(user, ready_slug)  # document A open in the editor
+    backend.release.clear()
+    user.find("+ Generate new…").click()
+    user.find(marker="gen-type").elements.pop().set_value("summary")
+    user.find(marker="gen-go").click()
+    await user.should_see("Generating…")
+    ed = editor(user)
+    ed.set_value("my unsaved edit of A")
+    backend.release.set()
+    await user.should_see("'Summary' is ready")
+    await user.should_see(marker="doc-Summary.md")
+    assert ed.value == "my unsaved edit of A"
+    await user.should_not_see("Discard changes?")
+
+
+async def test_finished_generation_opens_it_when_editor_clean(user, state, ready_slug, monkeypatch):
+    class Numbered(FakeBackend):
+        def generate(self, prompt, model):
+            super().generate(prompt, model)
+            return f"# Generated {len(self.prompts)}"
+
+    backend = Numbered()
+    monkeypatch.setattr("ytt.app_state.backend_for", lambda s: backend)
+    await generate(user, ready_slug)
+    user.find("+ Generate new…").click()
+    user.find(marker="gen-type").elements.pop().set_value("summary")
+    user.find(marker="gen-go").click()
+    await user.should_see(marker="doc-Summary.md")
+    for _ in range(50):
+        if editor(user).value.startswith("# Generated 2"):
+            break
+        await asyncio.sleep(0.05)
+    assert editor(user).value.startswith("# Generated 2")
