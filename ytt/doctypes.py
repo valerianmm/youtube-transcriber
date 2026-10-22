@@ -6,7 +6,14 @@ from datetime import datetime
 
 from ytt.config import Paths
 from ytt.library import sanitize
-from ytt.storage import Fingerprint, atomic_write_text, file_lock, read_text
+from ytt.storage import (
+    ConflictError,
+    Fingerprint,
+    atomic_write_text,
+    file_lock,
+    fingerprint,
+    read_text,
+)
 
 _COMMON_INSTRUCTIONS = """## Instructions
 - Merge overlapping content across videos; do not repeat it once per video.
@@ -108,38 +115,51 @@ class DocTypeStore:
         name = name.strip()
         if not name:
             raise ValueError("Name cannot be empty")
-        slug = make_slug(name)
         for d in self.list():
-            if d.slug != ignore_slug and (d.name.lower() == name.lower() or d.slug == slug):
+            if d.slug != ignore_slug and d.name.lower() == name.lower():
                 raise ValueError(f"A document type named '{name}' already exists")
-        if slug != ignore_slug and self._file(slug).exists():
-            raise ValueError(f"A document type named '{name}' already exists")
-        return slug
+        return name
+
+    def _free_slug(self, name: str) -> str:
+        base = make_slug(name)
+        candidate, n = base, 1
+        while self._file(candidate).exists():
+            n += 1
+            suffix = f"-{n}"
+            candidate = base[: 60 - len(suffix)].rstrip(". -") + suffix
+        return candidate
 
     def create(self, name: str) -> DocType:
         with file_lock(self._dir):
-            slug = self._check_new_name(name)
-            dt = DocType(slug, name.strip(), "", "## Structure\n\n## Instructions\n")
-            atomic_write_text(self._file(slug), render_doctype(dt), expect=None)
+            name = self._check_new_name(name)
+            dt = DocType(self._free_slug(name), name, "", "## Structure\n\n## Instructions\n")
+            atomic_write_text(self._file(dt.slug), render_doctype(dt), expect=None)
         return dt
 
     def duplicate(self, slug: str) -> DocType:
         src, _ = self.get(slug)
         with file_lock(self._dir):
-            name = f"{src.name} (copy)"
-            new_slug = self._check_new_name(name)
-            dt = DocType(new_slug, name, src.description, src.body)
-            atomic_write_text(self._file(new_slug), render_doctype(dt), expect=None)
+            taken = {d.name.lower() for d in self.list()}
+            name, n = f"{src.name} (copy)", 1
+            while name.lower() in taken:
+                n += 1
+                name = f"{src.name} (copy {n})"
+            dt = DocType(self._free_slug(name), name, src.description, src.body)
+            atomic_write_text(self._file(dt.slug), render_doctype(dt), expect=None)
         return dt
 
     def rename(self, slug: str, new_name: str) -> DocType:
         with file_lock(self._dir):
-            old, _ = self.get(slug)
-            new_slug = self._check_new_name(new_name, ignore_slug=slug)
-            dt = DocType(new_slug, new_name.strip(), old.description, old.body)
+            old, fp = self.get(slug)
+            new_name = self._check_new_name(new_name, ignore_slug=slug)
+            new_slug = slug if make_slug(new_name) == slug else self._free_slug(new_name)
+            dt = DocType(new_slug, new_name, old.description, old.body)
             if new_slug == slug:
-                atomic_write_text(self._file(slug), render_doctype(dt))
+                atomic_write_text(self._file(slug), render_doctype(dt), expect=fp)
             else:
+                current = fingerprint(self._file(slug))
+                if current != fp:
+                    raise ConflictError(self._file(slug), current)
                 atomic_write_text(self._file(new_slug), render_doctype(dt), expect=None)
                 self._file(slug).unlink(missing_ok=True)
         return dt

@@ -96,3 +96,40 @@ def test_list_ignores_trash_and_non_md_and_bad_files(store):
     assert names == ["a", "B", "weird"]
     store.delete("a")
     assert [d.slug for d in store.list()] == ["b", "weird"]
+
+
+def test_duplicate_repeatedly_gets_unique_names(store):
+    store.create("Summary")
+    names = [store.duplicate("summary").name for _ in range(3)]
+    assert names == ["Summary (copy)", "Summary (copy 2)", "Summary (copy 3)"]
+    assert len({d.slug for d in store.list()}) == 4
+
+
+def test_long_names_get_distinct_slugs(store):
+    long = "x" * 70
+    a = store.create(long + " one")
+    b = store.create(long + " two")
+    assert a.slug != b.slug and len(b.slug) <= 60
+    c = store.duplicate(a.slug)
+    d = store.duplicate(a.slug)
+    assert len({a.slug, b.slug, c.slug, d.slug}) == 4
+    r = store.rename(b.slug, long + " three")
+    assert store.get(r.slug)[0].name == long + " three"
+    with pytest.raises(ValueError):
+        store.create(long + " ONE")
+
+
+def test_rename_conflict_on_outside_edit(store, monkeypatch):
+    store.create("Alpha")
+    real_get = store.get
+
+    def stale_get(slug):
+        out = real_get(slug)
+        atomic_write_text(store.paths.doc_types / f"{slug}.md", "edited outside")
+        return out
+
+    monkeypatch.setattr(store, "get", stale_get)
+    with pytest.raises(ConflictError):
+        store.rename("alpha", "Beta")
+    with pytest.raises(ConflictError):
+        store.rename("alpha", "Alpha!")
