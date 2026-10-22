@@ -127,3 +127,26 @@ async def test_retranscribe_while_queued_tells_user(user, state, slug, monkeypat
     user.find(kind=ui.menu_item).click()
     user.find(marker="retranscribe-confirm").click()
     await user.should_see("This video is already in the queue; re-transcribe it again after it finishes.")
+
+
+async def test_project_conflict_on_save_is_shown(user, state, slug, monkeypatch):
+    from ytt.storage import ConflictError
+
+    def conflict(_slug):
+        raise ConflictError(state.projects._file(slug), None)
+
+    monkeypatch.setattr(state, "retry_failed", conflict)
+    await user.open(f"/project/{slug}")
+    user.find("Retry failed").click()
+    await user.should_see("This project changed on disk — reload the page and try again.")
+
+
+async def test_unexpected_handler_error_is_shown(user, state, slug, monkeypatch, caplog):
+    def boom(_slug):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(state, "cancel_queued", boom)
+    await user.open(f"/project/{slug}")
+    user.find("Cancel queued").click()
+    await user.should_see("Something went wrong: disk full")
+    caplog.clear()  # NiceGUI still logs the traceback, as it should

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from nicegui import ui
+from nicegui import app, ui
 
 from ytt.app_state import AppState
 
@@ -121,7 +121,16 @@ def frame(state: AppState, active: str | None):
         yield
 
 
+def _show_exception(e: Exception) -> None:
+    """Last-resort feedback for handler errors; NiceGUI still logs the traceback."""
+    try:
+        ui.notify(f"Something went wrong: {e}", type="negative")
+    except RuntimeError:
+        pass  # no client context (e.g. a background task of a closed page)
+
+
 def register_pages(state: AppState) -> None:
+    app.on_exception(_show_exception)
     from ytt.ui.doctypes_page import doctypes_content
     from ytt.ui.project_page import project_content
     from ytt.ui.settings_page import settings_content

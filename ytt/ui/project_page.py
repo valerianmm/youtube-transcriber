@@ -1,6 +1,7 @@
 """Project page: sources, videos, statuses, languages, re-transcribe."""
 from __future__ import annotations
 
+import functools
 from datetime import date
 
 from nicegui import events, run, ui
@@ -8,6 +9,7 @@ from nicegui import events, run, ui
 from ytt.app_state import AppState
 from ytt.config import LANGUAGES, WHISPER_MODELS
 from ytt.library import VideoRecord
+from ytt.storage import ConflictError
 from ytt.ui.documents_panel import documents_panel
 from ytt.urls import classify, split_urls
 from ytt.youtube import VideoInfo
@@ -26,6 +28,22 @@ FLAGS = {
     "ar": "🇸🇦", "he": "🇮🇱", "hi": "🇮🇳", "id": "🇮🇩", "vi": "🇻🇳", "th": "🇹🇭",
     "zh": "🇨🇳", "ja": "🇯🇵", "ko": "🇰🇷",
 }
+
+
+CONFLICT = "This project changed on disk — reload the page and try again."
+
+
+def _guarded(fn):
+    """Show a project-file save conflict instead of failing silently."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except ConflictError:
+            ui.notify(CONFLICT, type="negative")
+
+    return wrapper
 
 
 def _duration(seconds: int | None) -> str:
@@ -76,10 +94,12 @@ def project_content(state: AppState, slug: str) -> None:
     documents_panel(state, slug)
 
 
+@_guarded
 def _retry(state: AppState, slug: str) -> None:
     ui.notify(f"Retrying {state.retry_failed(slug)} videos")
 
 
+@_guarded
 def _cancel(state: AppState, slug: str) -> None:
     state.cancel_queued(slug)
     ui.notify("Cancelled queued videos")
@@ -94,6 +114,7 @@ def _header(state: AppState, slug: str) -> None:
         new_name = ui.input("Project name", value=project.name).mark("rename-input")
         error = ui.label().classes("text-negative text-sm")
 
+        @_guarded
         def rename() -> None:
             try:
                 renamed = state.projects.rename(slug, new_name.value or "")
@@ -112,6 +133,7 @@ def _header(state: AppState, slug: str) -> None:
             "This moves the project folder to the Trash; transcripts stay in the library."
         )
 
+        @_guarded
         def delete() -> None:
             state.delete_project(slug)
             ui.navigate.to("/")
@@ -125,6 +147,7 @@ def _header(state: AppState, slug: str) -> None:
         ui.button("Rename", on_click=rename_dialog.open).props("flat no-caps")
         ui.button("Delete", on_click=delete_dialog.open).props("flat no-caps color=negative")
 
+    @_guarded
     def set_language(e) -> None:
         current = state.projects.get(slug)
         current.language = None if e.value in (None, "", "auto") else e.value
@@ -220,6 +243,7 @@ def _render_preview(state, slug, previews, language, d_from, d_to, dialog, urls,
                         ui.label(v.upload_date.isoformat() if v.upload_date else "").classes("text-grey")
                         ui.label(_duration(v.duration)).classes("text-grey")
 
+    @_guarded
     def add() -> None:
         state.add_sources(slug, previews, language.value, date_from=d_from, date_to=d_to)
         urls.set_value("")
@@ -298,6 +322,7 @@ def _source_row(state, slug, source, statuses, chips, counts, refresh, dialog_ho
 
                 ui.button("Refresh", on_click=do_refresh).props("flat dense no-caps")
 
+            @_guarded
             def do_remove(s=source) -> None:
                 state.remove_source(slug, s.id)
                 refresh()
