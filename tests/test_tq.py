@@ -213,3 +213,48 @@ def test_first_use_model_download_stage(lib, audio_dir, downloads, info):
         assert any("first use" in line for line in queue.snapshot().log)
     finally:
         queue.shutdown()
+
+
+def test_mark_failed_raising_does_not_kill_worker(q, lib, info, info2, failing_download_for, monkeypatch):
+    failing_download_for(info.id, DownloadError("Private video"))
+    real = lib.mark_failed
+    calls = []
+
+    def flaky(i, err):
+        calls.append(i.id)
+        if len(calls) == 1:
+            raise OSError("disk full")
+        return real(i, err)
+
+    monkeypatch.setattr(lib, "mark_failed", flaky)
+    q.enqueue(Job(info, None, M, {"A"}))
+    q.enqueue(Job(info2, None, M, {"A"}))
+    q.start()
+    assert q.wait_idle(5)
+    assert lib.is_done(info2.id)
+    assert any("could not record" in line for line in q.snapshot().log)
+
+
+def test_cleanup_raising_still_goes_idle(q, lib, info, info2, monkeypatch):
+    def boom(_vid):
+        raise PermissionError("nope")
+
+    monkeypatch.setattr(q, "_cleanup_audio", boom)
+    q.enqueue(Job(info, None, M, {"A"}))
+    q.enqueue(Job(info2, None, M, {"A"}))
+    q.start()
+    assert q.wait_idle(5)
+    assert lib.is_done(info.id) and lib.is_done(info2.id)
+
+
+def test_stop_then_resume_during_download_keeps_running(q, lib, blocking_download, info):
+    q.enqueue(Job(info, None, M, {"A"}))
+    q.start()
+    release = blocking_download.block
+    assert blocking_download.entered.wait(5)
+    q.stop()
+    q.resume()
+    release.set()
+    assert q.wait_idle(5)
+    assert not q.snapshot().paused
+    assert lib.is_done(info.id)

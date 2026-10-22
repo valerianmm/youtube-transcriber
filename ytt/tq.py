@@ -121,6 +121,8 @@ class TranscriptionQueue:
     def resume(self) -> None:
         with self._cond:
             self._paused = False
+            if not self._shutdown:
+                self._abort = False  # let an in-flight download continue
             self._log_line("Queue resumed")
             self._cond.notify_all()
 
@@ -186,7 +188,16 @@ class TranscriptionQueue:
                 self._abort = False
                 self._log_line(f"Downloading {job.info.title}")
                 self._cond.notify_all()
-            self._process(job)
+            try:
+                self._process(job)
+            except Exception as e:  # noqa: BLE001 - the worker must never die
+                with self._cond:
+                    self._log_line(f"Internal error on {job.info.title}: {e}")
+            finally:
+                with self._cond:
+                    still_current = self._current is job
+                if still_current:
+                    self._finish()
 
     def _set_stage(self, stage: Stage) -> None:
         with self._cond:
@@ -201,12 +212,12 @@ class TranscriptionQueue:
         for p in self.audio_dir.glob(f"{video_id}.*"):
             p.unlink(missing_ok=True)
 
-    def _finish(self, requeue: Job | None = None, counted: bool = True) -> None:
+    def _finish(self, requeue: Job | None = None) -> None:
         with self._cond:
             if requeue is not None:
+                # stop() already paused the queue; a resume() since then must win.
                 self._queue.appendleft(requeue)
-                self._paused = True
-            elif counted:
+            else:
                 self._done += 1
             self._current = None
             self._stage = "idle"
@@ -217,15 +228,13 @@ class TranscriptionQueue:
         requeue: Job | None = None
         try:
             if not info.available:
-                self.library.mark_failed(info, info.error or "Unavailable")
-                with self._cond:
-                    self._log_line(f"Skipped {info.title}: {info.error}")
+                self._mark_failed(info, info.error or "Unavailable")
                 return
             self.audio_dir.mkdir(parents=True, exist_ok=True)
             audio = self._download(info.id, self.audio_dir, self._should_abort)
             tx = self._transcriber(job.model)
-            if job.model not in self._seen_models:
-                self._seen_models.add(job.model)
+            first_use = job.model not in self._seen_models
+            if first_use:
                 if not self._model_cached(job.model):
                     with self._cond:
                         self._log_line(
@@ -239,6 +248,7 @@ class TranscriptionQueue:
             with self._cond:
                 self._log_line(f"Transcribing {info.title}")
             result = tx.transcribe(audio, job.language)
+            self._seen_models.add(job.model)
             self.library.write_transcript(info, result, job.model)
             with self._cond:
                 self._log_line(f"Done {info.title}")
@@ -247,15 +257,23 @@ class TranscriptionQueue:
             with self._cond:
                 self._log_line(f"Download interrupted: {info.title}")
         except Exception as e:  # noqa: BLE001
-            msg = friendly_error(e)
-            try:
-                self.library.mark_failed(info, msg)
-            finally:
-                with self._cond:
-                    self._log_line(f"Failed {info.title}: {msg}")
+            self._mark_failed(info, friendly_error(e))
         finally:
-            self._cleanup_audio(info.id)
+            try:
+                self._cleanup_audio(info.id)
+            except Exception as e:  # noqa: BLE001
+                with self._cond:
+                    self._log_line(f"Could not delete audio for {info.title}: {e}")
             self._finish(requeue)
+
+    def _mark_failed(self, info: VideoInfo, msg: str) -> None:
+        try:
+            self.library.mark_failed(info, msg)
+            line = f"Failed {info.title}: {msg}"
+        except Exception as e:  # noqa: BLE001
+            line = f"Failed {info.title}: {msg} (could not record: {e})"
+        with self._cond:
+            self._log_line(line)
 
     def _transcriber(self, model: str) -> Transcriber:
         tx = self._transcribers.get(model)
