@@ -14,12 +14,31 @@ SYSTEM = (
 )
 
 
+_API_CREDENTIAL_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+
+
 class ClaudeError(Exception):
     """Message is shown to the user as is."""
 
 
 class Backend(Protocol):
     def generate(self, prompt: str, model: str) -> str: ...
+
+
+def subscription_options(model: str):
+    """Options for one tool-less turn on the logged-in CLI, never billed to an API key."""
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    return ClaudeAgentOptions(
+        model=model,
+        tools=[],  # no built-in tools at all, so the single turn can't end in a tool call
+        allowed_tools=[],
+        max_turns=1,
+        system_prompt=SYSTEM,
+        # The SDK merges this over os.environ; empty values blank any inherited key so the
+        # CLI falls back to the subscription login.
+        env={name: "" for name in _API_CREDENTIAL_ENV},
+    )
 
 
 class SubscriptionBackend:
@@ -42,15 +61,12 @@ class SubscriptionBackend:
     async def _run(self, prompt: str, model: str) -> str:
         from claude_agent_sdk import (
             AssistantMessage,
-            ClaudeAgentOptions,
             ResultMessage,
             TextBlock,
             query,
         )
 
-        options = ClaudeAgentOptions(
-            model=model, allowed_tools=[], max_turns=1, system_prompt=SYSTEM
-        )
+        options = subscription_options(model)
         parts: list[str] = []
         async for msg in query(prompt=prompt, options=options):
             if isinstance(msg, AssistantMessage):
