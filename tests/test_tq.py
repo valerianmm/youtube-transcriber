@@ -75,6 +75,7 @@ class Downloads:
         self.calls = []
         self.block = None  # threading.Event the first download waits on
         self.entered = threading.Event()
+        self.meta = {}  # video id -> yt-dlp info dict returned with the audio
 
     def __call__(self, video_id, dest_dir, should_abort):
         self.calls.append(video_id)
@@ -89,7 +90,7 @@ class Downloads:
                     self.block = None  # a retry after abort does not block
                     raise Aborted()
             self.block = None
-        return path
+        return path, self.meta.get(video_id, {})
 
 
 @pytest.fixture
@@ -97,9 +98,28 @@ def downloads(audio_dir):
     return Downloads(audio_dir)
 
 
+class Fetches:
+    """Fake fetch_video: unavailable unless a fresh info is set for the id."""
+
+    def __init__(self):
+        self.fresh = {}
+        self.calls = []
+
+    def __call__(self, video_id):
+        self.calls.append(video_id)
+        return self.fresh.get(video_id) or VideoInfo(
+            id=video_id, title=video_id, url=f"https://youtu.be/{video_id}",
+            available=False, error="Still private")
+
+
 @pytest.fixture
-def q(lib, audio_dir, downloads, fake_tx):
-    queue = TranscriptionQueue(lib, audio_dir, download=downloads,
+def fetches():
+    return Fetches()
+
+
+@pytest.fixture
+def q(lib, audio_dir, downloads, fake_tx, fetches):
+    queue = TranscriptionQueue(lib, audio_dir, download=downloads, fetch=fetches,
                                transcriber_factory=fake_tx, model_cached=lambda k: True)
     yield queue
     queue.shutdown()
@@ -155,13 +175,36 @@ def test_failure_does_not_stop_batch(q, lib, audio_dir, info, info2, failing_dow
     assert not any(audio_dir.iterdir())
 
 
-def test_unavailable_marked_without_download(q, lib, download_spy, info):
+def test_unavailable_refetched_then_marked_without_download(q, lib, download_spy, fetches, info):
     bad = VideoInfo(id=info.id, title="x", url=info.url, available=False, error="Removed")
     q.enqueue(Job(bad, None, M, {"A"}))
     q.start()
     assert q.wait_idle(5)
-    assert download_spy.calls == []
-    assert lib.get(bad.id).error == "Removed"
+    assert fetches.calls == [info.id] and download_spy.calls == []
+    rec = lib.get(bad.id)
+    assert (rec.error, rec.title) == ("Still private", "x")
+
+
+def test_retry_recovers_video_that_became_available(q, lib, fetches, info):
+    bad = VideoInfo(id=info.id, title=info.id, url=info.url, available=False, error="Private video")
+    fetches.fresh[info.id] = info
+    q.enqueue(Job(bad, None, M, {"A"}, force=True))
+    q.start()
+    assert q.wait_idle(5)
+    assert lib.is_done(info.id) and lib.get(info.id).title == info.title
+
+
+def test_download_metadata_fills_flat_playlist_info(q, lib, downloads):
+    flat = VideoInfo(id="pl1", title="Flat title", url="https://youtu.be/pl1")
+    downloads.meta["pl1"] = {"upload_date": "20240607", "language": "de", "channel": "Kanal",
+                             "title": "Full title", "duration": 125}
+    q.enqueue(Job(flat, None, M, {"A"}))
+    q.start()
+    assert q.wait_idle(5)
+    rec = lib.get("pl1")
+    assert rec.path == "Kanal/2024-06-07_Full title [pl1].txt"
+    assert (rec.upload_date, rec.youtube_language, rec.duration) == ("2024-06-07", "de", 125)
+    assert rec.language_mismatch  # Whisper heard "en"
 
 
 def test_stop_during_download_requeues(q, lib, audio_dir, blocking_download, info, info2):

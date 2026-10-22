@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
@@ -183,7 +183,22 @@ def expand(parsed: ParsedUrl, date_from: date | None = None,
     raise DownloadError("Not a valid YouTube URL")
 
 
-def download_audio(video_id: str, dest_dir: Path, should_abort: Callable[[], bool]) -> Path:
+def with_download_info(info: VideoInfo, meta: dict) -> VideoInfo:
+    """Fill in what a flat playlist entry lacks from the full info dict of the download."""
+    return replace(
+        info,
+        title=meta.get("title") or info.title,
+        channel=meta.get("channel") or meta.get("uploader") or info.channel,
+        upload_date=_parse_date(meta.get("upload_date")) or info.upload_date,
+        duration=meta.get("duration") or info.duration,
+        language=meta.get("language") or info.language,
+    )
+
+
+def download_audio(
+    video_id: str, dest_dir: Path, should_abort: Callable[[], bool]
+) -> tuple[Path, dict]:
+    """Returns the audio file and yt-dlp's full info dict for the video."""
     def hook(_status: dict) -> None:
         if should_abort():
             raise Aborted()
@@ -197,7 +212,7 @@ def download_audio(video_id: str, dest_dir: Path, should_abort: Callable[[], boo
     }
     try:
         with _ydl(opts) as ydl:
-            ydl.extract_info(video_url(video_id), download=True)
+            meta = ydl.extract_info(video_url(video_id), download=True) or {}
     except Aborted:
         raise
     except Exception as e:  # noqa: BLE001
@@ -207,4 +222,4 @@ def download_audio(video_id: str, dest_dir: Path, should_abort: Callable[[], boo
     files = [p for p in dest_dir.glob(f"{video_id}.*") if p.suffix not in (".part", ".ytdl")]
     if not files:
         raise DownloadError("Download produced no audio file")
-    return files[0]
+    return files[0], meta

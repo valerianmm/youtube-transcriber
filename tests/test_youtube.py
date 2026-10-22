@@ -6,7 +6,8 @@ import yt_dlp.utils
 from ytt import youtube
 from ytt.urls import classify
 from ytt.youtube import (Aborted, DownloadError, VideoInfo, download_audio, expand,
-                         friendly_error, list_channel, list_playlist, take_in_range)
+                         friendly_error, list_channel, list_playlist, take_in_range,
+                         with_download_info)
 
 
 def vi(id, d=None, **kw):
@@ -129,7 +130,7 @@ class _DlYdl:
             for h in self.opts["progress_hooks"]:
                 h({"status": "downloading"})
         (self.dest / "vid.webm").write_bytes(b"a")
-        return {}
+        return {"id": "vid", "upload_date": "20240102"}
 
 
 def _patch(monkeypatch, tmp_path, **kw):
@@ -145,10 +146,20 @@ def _patch(monkeypatch, tmp_path, **kw):
 
 def test_download_audio_returns_path_and_opts(monkeypatch, tmp_path):
     seen = _patch(monkeypatch, tmp_path)
-    assert download_audio("vid", tmp_path, lambda: False) == tmp_path / "vid.webm"
+    path, meta = download_audio("vid", tmp_path, lambda: False)
+    assert path == tmp_path / "vid.webm" and meta["upload_date"] == "20240102"
     o = seen["opts"]
     assert o["format"] == "bestaudio/best" and o["quiet"] and o["noprogress"]
     assert o["outtmpl"] == str(tmp_path / "%(id)s.%(ext)s")
+
+
+def test_with_download_info_prefers_fresh_values():
+    flat = VideoInfo(id="v", title="Flat", url="u", channel="Old", duration=5)
+    merged = with_download_info(flat, {"upload_date": "20240607", "language": "fr",
+                                       "uploader": "Up", "title": "", "duration": None})
+    assert merged.upload_date == date(2024, 6, 7) and merged.language == "fr"
+    assert (merged.channel, merged.title, merged.duration) == ("Up", "Flat", 5)
+    assert with_download_info(flat, {}) == flat
 
 
 def test_download_audio_abort(monkeypatch, tmp_path):

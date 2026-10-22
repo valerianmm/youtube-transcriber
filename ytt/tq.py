@@ -14,7 +14,14 @@ from huggingface_hub import try_to_load_from_cache
 from ytt.config import WHISPER_MODELS
 from ytt.library import Library
 from ytt.transcribe import Transcriber
-from ytt.youtube import Aborted, VideoInfo, download_audio, friendly_error
+from ytt.youtube import (
+    Aborted,
+    VideoInfo,
+    download_audio,
+    fetch_video,
+    friendly_error,
+    with_download_info,
+)
 
 Stage = Literal["idle", "downloading", "loading_model", "transcribing"]
 LOG_LIMIT = 200
@@ -56,11 +63,13 @@ class TranscriptionQueue:
         audio_dir: Path,
         download=download_audio,
         transcriber_factory=Transcriber,
+        fetch=fetch_video,
         model_cached: Callable[[str], bool] = _model_cached,
     ):
         self.library = library
         self.audio_dir = audio_dir
         self._download = download
+        self._fetch = fetch
         self._factory = transcriber_factory
         self._model_cached = model_cached
         self._cond = threading.Condition()
@@ -227,11 +236,15 @@ class TranscriptionQueue:
         info = job.info
         requeue: Job | None = None
         try:
-            if not info.available:
-                self._mark_failed(info, info.error or "Unavailable")
-                return
+            if not info.available:  # it may have become available since (Retry failed)
+                fresh = self._fetch(info.id)
+                if not fresh.available:
+                    self._mark_failed(info, fresh.error or info.error or "Unavailable")
+                    return
+                info = fresh
             self.audio_dir.mkdir(parents=True, exist_ok=True)
-            audio = self._download(info.id, self.audio_dir, self._should_abort)
+            audio, meta = self._download(info.id, self.audio_dir, self._should_abort)
+            info = with_download_info(info, meta)
             tx = self._transcriber(job.model)
             first_use = job.model not in self._seen_models
             if first_use:
