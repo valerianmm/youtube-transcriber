@@ -67,17 +67,35 @@ class Library:
     def __init__(self, paths: Paths):
         self.paths = paths
         self._lock = threading.Lock()
+        self._cache: dict[str, dict] = {}
+        self._cache_key: tuple[int, int] | None = None
 
     # --- index -----------------------------------------------------------
-    def _load(self) -> dict[str, dict]:
+    @staticmethod
+    def _stat_key(path: Path) -> tuple[int, int] | None:
         try:
-            data, _ = read_json(self.paths.index)
+            st = path.stat()
         except FileNotFoundError:
-            return {}
-        return data.get("videos", {})
+            return None
+        return st.st_mtime_ns, st.st_size
+
+    def _load(self) -> dict[str, dict]:
+        """The parsed index, cached until index.json changes. Call under self._lock and
+        never mutate the result; writers copy it first."""
+        key = self._stat_key(self.paths.index)
+        if key is None:
+            self._cache, self._cache_key = {}, None
+        elif key != self._cache_key:
+            try:
+                data, _ = read_json(self.paths.index)
+            except FileNotFoundError:
+                data = {}
+            self._cache, self._cache_key = data.get("videos", {}), key
+        return self._cache
 
     def _save(self, videos: dict[str, dict]) -> None:
         atomic_write_json(self.paths.index, {"version": 1, "videos": videos})
+        self._cache, self._cache_key = videos, self._stat_key(self.paths.index)
 
     @staticmethod
     def _record(d: dict) -> VideoRecord:
@@ -90,8 +108,17 @@ class Library:
             d = self._load().get(video_id)
         return self._record(d) if d else None
 
+    def records(self, video_ids) -> dict[str, VideoRecord]:
+        """Bulk lookup: records for those of video_ids that are in the index."""
+        with self._lock:
+            videos = self._load()
+            found = {vid: videos[vid] for vid in video_ids if vid in videos}
+        return {vid: self._record(d) for vid, d in found.items()}
+
     def is_done(self, video_id: str) -> bool:
-        rec = self.get(video_id)
+        return self.is_done_record(self.get(video_id))
+
+    def is_done_record(self, rec: VideoRecord | None) -> bool:
         return bool(
             rec and rec.status == "done" and rec.path
             and (self.paths.transcripts / rec.path).is_file()
@@ -138,7 +165,7 @@ class Library:
             transcribed_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
         with self._lock:
-            videos = self._load()
+            videos = dict(self._load())
             previous = videos.get(info.id)
             videos[info.id] = asdict(rec)
             self._save(videos)
@@ -148,7 +175,7 @@ class Library:
 
     def mark_failed(self, info: VideoInfo, error: str) -> VideoRecord:
         with self._lock:
-            videos = self._load()
+            videos = dict(self._load())
             existing = videos.get(info.id)
             if existing and existing.get("status") == "done":
                 return self._record(existing)

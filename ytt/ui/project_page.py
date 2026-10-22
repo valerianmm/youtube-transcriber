@@ -257,9 +257,10 @@ def _sources_section(state: AppState, slug: str):
             statuses = state.video_status(slug)
         except FileNotFoundError:
             return
+        records = state.library.records(list(chips))
         for vid, rows in chips.items():
             for parts in rows:
-                _update_video(state, vid, statuses.get(vid, "queued"), parts)
+                _update_video(vid, statuses.get(vid, "queued"), records.get(vid), parts)
         for source in project.sources:
             label = counts.get(source.id)
             if label is not None:
@@ -308,14 +309,16 @@ def _source_row(state, slug, source, statuses, chips, counts, refresh, dialog_ho
         def build(e) -> None:  # lazily build video rows on first expand
             if e.value and not built["done"]:
                 built["done"] = True
+                statuses = state.video_status(slug)
+                records = state.library.records([v.id for v in source.videos])
                 with rows:
                     for info in source.videos:
-                        _video_row(state, info, state.video_status(slug), chips, dialog_host)
+                        _video_row(state, info, statuses, records, chips, dialog_host)
 
         expansion.on_value_change(build)
 
 
-def _video_row(state, info: VideoInfo, statuses, chips, dialog_host) -> None:
+def _video_row(state, info: VideoInfo, statuses, records, chips, dialog_host) -> None:
     with ui.row().classes("w-full items-center no-wrap gap-2"):
         ui.label(info.title).classes("grow truncate")
         lang = ui.row().classes("items-center gap-1")
@@ -327,11 +330,10 @@ def _video_row(state, info: VideoInfo, statuses, chips, dialog_host) -> None:
                 )
     parts = {"chip": chip, "lang": lang, "key": None}
     chips.setdefault(info.id, []).append(parts)
-    _update_video(state, info.id, statuses.get(info.id, "queued"), parts)
+    _update_video(info.id, statuses.get(info.id, "queued"), records.get(info.id), parts)
 
 
-def _update_video(state: AppState, vid: str, status: str, parts: dict) -> None:
-    rec = state.library.get(vid)
+def _update_video(vid: str, status: str, rec: VideoRecord | None, parts: dict) -> None:
     text = _status_text(status, rec)
     lang_key = (rec.language, rec.youtube_language, rec.language_mismatch) if rec else None
     key = (text, status, lang_key)

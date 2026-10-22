@@ -96,3 +96,19 @@ def test_long_non_latin_titles_fit_filesystem_limits(lib, info, title):
     rec = lib.write_transcript(replace(info, title=title), TranscriptResult("x", "ja"), "large-v3-turbo")
     assert lib.read_transcript(info.id) == "x"
     assert len((lib.paths.transcripts / rec.path).name.encode()) <= 232
+
+
+def test_outside_change_to_index_is_picked_up(lib, info):
+    assert lib.get(info.id) is None  # caches the (missing) index
+    other = Library(lib.paths)  # e.g. a second process writing the same library
+    other.write_transcript(info, TranscriptResult("x", "en"), "large-v3-turbo")
+    assert lib.get(info.id) is not None
+    other.mark_failed(replace(info, id="zzz"), "boom")
+    assert lib.records([info.id, "zzz", "nope"]).keys() == {info.id, "zzz"}
+
+
+def test_returned_records_do_not_alias_the_cache(lib, info):
+    lib.write_transcript(info, TranscriptResult("x", "en"), "large-v3-turbo")
+    lib.get(info.id).title = "changed"
+    lib.records([info.id])[info.id].status = "failed"
+    assert lib.get(info.id).title == "My Video" and lib.is_done(info.id)

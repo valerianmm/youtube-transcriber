@@ -133,6 +133,36 @@ def test_status_mapping(state, make_project):
     }
 
 
+def test_done_beats_cancelled(state, make_project):
+    # cancelled here, but finished by another project: it is included in generation
+    slug = make_project(videos=["a"], done=["a"], cancelled=["a"])
+    assert state.video_status(slug) == {"a": "done"}
+
+
+def test_video_status_is_fast_for_large_projects(state, make_project):
+    import time
+    from dataclasses import asdict
+    from ytt.library import VideoRecord
+    from ytt.storage import atomic_write_json
+
+    ids = [f"v{n:04d}" for n in range(1000)]
+    slug = make_project(videos=ids[:300])
+    videos = {}
+    for n, vid in enumerate(ids):
+        rel = f"Ch/{vid}.txt"
+        if n % 2 == 0:
+            (state.paths.transcripts / rel).parent.mkdir(parents=True, exist_ok=True)
+            (state.paths.transcripts / rel).write_text("t")
+        videos[vid] = asdict(VideoRecord(vid, vid, "Ch", "u", None, None,
+                                         "done" if n % 2 == 0 else "failed", path=rel))
+    atomic_write_json(state.paths.index, {"version": 1, "videos": videos})
+    start = time.perf_counter()
+    statuses = state.video_status(slug)
+    elapsed = time.perf_counter() - start
+    assert statuses["v0000"] == "done" and statuses["v0001"] == "failed"
+    assert elapsed < 0.05, elapsed
+
+
 def test_retry_failed_forces_and_clears_cancelled(state, make_project):
     slug = make_project(videos=["a", "b", "c"], done=["a"], failed=["b"], cancelled=["c"])
     assert state.retry_failed(slug) == 2

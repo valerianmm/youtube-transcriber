@@ -146,17 +146,19 @@ class AppState:
     # --- status / queue actions -----------------------------------------
     def video_status(self, slug: str) -> dict[str, str]:
         project = self.projects.get(slug)
+        videos = project.videos()
+        records = self.library.records([v.id for v in videos])
         out: dict[str, str] = {}
-        for info in project.videos():
+        for info in videos:
             stage = self.queue.stage_of(info.id)
+            rec = records.get(info.id)
             if stage is not None:
                 out[info.id] = "transcribing" if stage == "loading_model" else stage
+            elif self.library.is_done_record(rec):
+                out[info.id] = "done"
             elif info.id in project.cancelled:
                 out[info.id] = "cancelled"
-            elif self.library.is_done(info.id):
-                out[info.id] = "done"
             else:
-                rec = self.library.get(info.id)
                 out[info.id] = "failed" if rec and rec.status == "failed" else "queued"
         return out
 
