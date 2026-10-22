@@ -7,11 +7,12 @@ class FakeQueue:
     def __init__(self):
         self.paused = False
         self.current_title = None
+        self.log = []
 
     def snapshot(self):
         return QueueSnapshot(
             paused=self.paused, current=None, current_title=self.current_title,
-            stage="idle", done=0, total=0, queued=[], log=[],
+            stage="idle", done=0, total=0, queued=[], log=list(self.log),
         )
 
     def stop(self):

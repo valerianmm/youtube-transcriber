@@ -13,7 +13,7 @@ STAGE_LABELS = {
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
 }
-
+LOG_LINES = 50
 
 def _counts(project) -> str:
     return f"{len(project.videos())} videos · {len(project.documents)} docs"
@@ -52,6 +52,9 @@ def _queue_bar(state: AppState) -> None:
         stage = ui.label()
         progress = ui.label()
         button = ui.button().props("flat dense color=white")
+    with ui.expansion("Log").props("dense").classes("w-full text-sm"):
+        log = ui.label().classes("whitespace-pre-wrap font-mono text-xs max-h-48 overflow-auto")
+    shown: dict = {"log": None}
 
     def toggle() -> None:
         if state.queue.snapshot().paused:
@@ -68,6 +71,10 @@ def _queue_bar(state: AppState) -> None:
         stage.set_text(STAGE_LABELS.get(snap.stage, snap.stage) if snap.current else "")
         progress.set_text(f"{snap.done}/{snap.total}")
         button.set_text("Resume" if snap.paused else "Stop")
+        lines = snap.log[-LOG_LINES:]
+        if lines != shown["log"]:
+            shown["log"] = lines
+            log.set_text("\n".join(lines) or "Nothing yet")
 
     refresh()
     ui.timer(1.0, refresh)
@@ -76,7 +83,7 @@ def _queue_bar(state: AppState) -> None:
 @contextmanager
 def frame(state: AppState, active: str | None):
     """Render the drawer and queue bar, then yield for the page content."""
-    with ui.header().classes("items-center"):
+    with ui.header().classes("items-center"), ui.column().classes("w-full gap-0"):
         _queue_bar(state)
 
     with ui.left_drawer(fixed=True).classes("gap-1"):

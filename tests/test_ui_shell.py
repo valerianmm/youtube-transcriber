@@ -72,3 +72,12 @@ async def test_queue_bar_without_current_job_and_toggle(user, state):
     assert state.queue.paused
     user.find("Resume").click()
     await user.should_see("Stop")
+
+
+async def test_log_shows_recent_lines(user, state):
+    state.queue.log = ["10:00:00 Downloading Whisper model large-v3-turbo (first use, ~1.5–3 GB)…"]
+    await user.open("/settings")
+    user.find("Log").click()
+    await user.should_see("Downloading Whisper model large-v3-turbo")
+    state.queue.log = [*state.queue.log, "10:00:05 Transcribing Talk"]  # picked up by the timer
+    await user.should_see("Transcribing Talk")
