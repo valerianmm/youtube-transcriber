@@ -374,9 +374,13 @@ def _retranscribe_dialog(state: AppState, info: VideoInfo, host) -> None:
             ui.label(f"• {name}")
 
         def go() -> None:
-            state.retranscribe(info.id, model.value, language.value)
-            ui.notify("Re-transcription queued")
             dialog.close()
+            try:
+                state.retranscribe(info.id, model.value, language.value)
+            except ValueError as e:
+                ui.notify(str(e), type="warning")
+                return
+            ui.notify("Re-transcription queued")
 
         with ui.row().classes("justify-end w-full"):
             ui.button("Cancel", on_click=dialog.close).props("flat")

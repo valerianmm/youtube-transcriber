@@ -342,3 +342,11 @@ def test_remove_source_cancels_only_videos_left_without_a_source(state, make_pro
     state.requeue_pending()
     state.remove_source(slug, p.sources[0].id)
     assert {j.info.id for j in state.queue.jobs} == {"b", "c"}
+
+
+def test_retranscribe_refuses_video_already_in_queue(state, make_project):
+    make_project(videos=["a"])
+    state.requeue_pending()
+    with pytest.raises(ValueError, match="already in the queue"):
+        state.retranscribe("a", "large-v2", None)
+    assert len(state.queue.jobs) == 1 and not state.queue.jobs[0].force

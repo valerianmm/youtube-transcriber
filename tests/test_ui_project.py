@@ -117,3 +117,13 @@ async def test_rename(user, state, slug):
     user.find("Save").click()
     await user.should_see("Renamed")
     assert [p.name for p in state.projects.list()] == ["Renamed"]
+
+
+async def test_retranscribe_while_queued_tells_user(user, state, slug, monkeypatch):
+    seed_source(state, slug, [vi("r1")])
+    monkeypatch.setattr(state.queue, "stage_of", lambda vid: "queued")
+    await user.open(f"/project/{slug}")
+    user.find(marker="source").elements.pop().set_value(True)
+    user.find(kind=ui.menu_item).click()
+    user.find(marker="retranscribe-confirm").click()
+    await user.should_see("This video is already in the queue; re-transcribe it again after it finishes.")

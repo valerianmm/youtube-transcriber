@@ -17,6 +17,9 @@ from ytt.urls import ParsedUrl, classify, split_urls
 from ytt.youtube import VideoInfo, expand as youtube_expand
 
 
+ALREADY_QUEUED = "This video is already in the queue; re-transcribe it again after it finishes."
+
+
 class AppState:
     def __init__(self, paths: Paths, *, queue_factory=TranscriptionQueue, expand=youtube_expand):
         self.paths = paths
@@ -206,6 +209,8 @@ class AppState:
         return dropped
 
     def retranscribe(self, video_id: str, model: str, language: str | None) -> None:
+        if self.queue.stage_of(video_id) is not None:
+            raise ValueError(ALREADY_QUEUED)
         info: VideoInfo | None = None
         slugs: set[str] = set()
         for project in self.projects.list():
