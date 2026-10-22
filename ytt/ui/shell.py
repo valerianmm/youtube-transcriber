@@ -15,6 +15,7 @@ STAGE_LABELS = {
 }
 LOG_LINES = 50
 
+
 def _counts(project) -> str:
     return f"{len(project.videos())} videos · {len(project.documents)} docs"
 
