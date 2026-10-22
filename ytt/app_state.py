@@ -17,6 +17,9 @@ from ytt.urls import ParsedUrl, classify, split_urls
 from ytt.youtube import VideoInfo, expand as youtube_expand
 
 
+MISSING_DOC_TYPE = (
+    "The document type for this document no longer exists — generate a new document instead."
+)
 ALREADY_QUEUED = "This video is already in the queue; re-transcribe it again after it finishes."
 
 
@@ -252,7 +255,10 @@ class AppState:
             for v in project.videos()
             if self.library.is_done(v.id)
         ]
-        dt, _ = self.doctypes.get(doc_type_slug)
+        try:
+            dt, _ = self.doctypes.get(doc_type_slug)
+        except FileNotFoundError:
+            raise ValueError(MISSING_DOC_TYPE) from None
         markdown = generate_document(
             backend_for(self.settings), self.settings.claude_model, dt, items
         )

@@ -324,3 +324,13 @@ async def test_finished_generation_opens_it_when_editor_clean(user, state, ready
             break
         await asyncio.sleep(0.05)
     assert editor(user).value.startswith("# Generated 2")
+
+
+async def test_regenerate_with_deleted_doc_type_explains(user, state, ready_slug, fake_backend):
+    await generate(user, ready_slug)
+    state.doctypes.delete(state.projects.get(ready_slug).documents[0].doc_type)
+    user.find(marker="doc-regenerate").click()
+    await user.should_see("The document type for this document no longer exists — "
+                          "generate a new document instead.")
+    await user.should_not_see(marker="confirm-action")
+    assert len(fake_backend.prompts) == 1

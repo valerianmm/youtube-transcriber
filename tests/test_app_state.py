@@ -350,3 +350,12 @@ def test_retranscribe_refuses_video_already_in_queue(state, make_project):
     with pytest.raises(ValueError, match="already in the queue"):
         state.retranscribe("a", "large-v2", None)
     assert len(state.queue.jobs) == 1 and not state.queue.jobs[0].force
+
+
+def test_generate_with_missing_doc_type_explains(state, make_project, fake_backend):
+    slug = make_project(videos=["a"], done=["a"])
+    meta = state.generate(slug, "summary", "Summary")
+    state.doctypes.delete("summary")
+    with pytest.raises(ValueError, match="no longer exists"):
+        state.generate(slug, "summary", "Summary", replace_file=meta.file)
+    assert fake_backend.prompts and len(fake_backend.prompts) == 1

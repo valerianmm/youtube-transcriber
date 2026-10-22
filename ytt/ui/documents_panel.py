@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from nicegui import run, ui
 
-from ytt.app_state import AppState
+from ytt.app_state import MISSING_DOC_TYPE, AppState
 from ytt.claude_client import ClaudeError
 from ytt.pdf import PdfUnavailable
 from ytt.storage import ANY, ConflictError
@@ -249,6 +249,11 @@ def documents_panel(state: AppState, slug: str) -> None:
         file = cur["file"]
         meta = next((m for m in state.projects.get(slug).documents if m.file == file), None)
         if meta is None:
+            return
+        try:
+            state.doctypes.get(meta.doc_type)
+        except FileNotFoundError:
+            message_dialog(host, "Can't regenerate", MISSING_DOC_TYPE)
             return
         ready, left_out = state.ready_to_generate(slug)
         if not ready:
