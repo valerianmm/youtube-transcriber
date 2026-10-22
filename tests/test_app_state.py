@@ -30,10 +30,11 @@ class FakeQueue:
             return "queued"
         return None
 
-    def cancel_project(self, slug):
-        dropped = [j.info.id for j in self.jobs if slug in j.projects]
-        self.jobs = [j for j in self.jobs if slug not in j.projects]
-        return dropped
+    def cancel_project(self, slug, video_ids=None):
+        hit = [j for j in self.jobs if slug in j.projects
+               and (video_ids is None or j.info.id in video_ids)]
+        self.jobs = [j for j in self.jobs if j not in hit]
+        return [j.info.id for j in hit]
 
 
 class FakeBackend:
@@ -323,3 +324,21 @@ def test_source_language_beats_project_language(state, make_project):
     state.projects.save(p)
     state.requeue_pending()
     assert state.queue.jobs[0].language == "es"
+
+
+def test_delete_project_cancels_its_queued_jobs(state, make_project):
+    slug = make_project(videos=["a", "b"])
+    state.requeue_pending()
+    state.delete_project(slug)
+    assert state.queue.jobs == [] and state.projects.list() == []
+
+
+def test_remove_source_cancels_only_videos_left_without_a_source(state, make_project):
+    slug = make_project(videos=["a", "b"])
+    p = state.projects.get(slug)
+    p.sources.append(Source(kind="video", url=video_url("b"), title="B", videos=[info("b")]))
+    p.sources.append(Source(kind="video", url=video_url("c"), title="C", videos=[info("c")]))
+    state.projects.save(p)
+    state.requeue_pending()
+    state.remove_source(slug, p.sources[0].id)
+    assert {j.info.id for j in state.queue.jobs} == {"b", "c"}

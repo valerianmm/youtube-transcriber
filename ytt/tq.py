@@ -135,12 +135,14 @@ class TranscriptionQueue:
             self._log_line("Queue resumed")
             self._cond.notify_all()
 
-    def cancel_project(self, slug: str) -> list[str]:
+    def cancel_project(self, slug: str, video_ids: set[str] | None = None) -> list[str]:
+        """Drop the project's claim on its queued jobs (only video_ids, if given)."""
         with self._cond:
             kept: deque[Job] = deque()
             dropped: list[str] = []
             for job in self._queue:
-                job.projects.discard(slug)
+                if video_ids is None or job.info.id in video_ids:
+                    job.projects.discard(slug)
                 if job.projects:
                     kept.append(job)
                 else:

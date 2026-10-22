@@ -238,6 +238,13 @@ def test_cancel_project_keeps_shared_jobs(q, info, info2):
     assert q.snapshot().total == 1
 
 
+def test_cancel_project_limited_to_videos(q, info, info2):
+    q.enqueue(Job(info, None, M, {"A"}))
+    q.enqueue(Job(info2, None, M, {"A"}))
+    assert q.cancel_project("A", {info2.id}) == [info2.id]
+    assert q.snapshot().queued == [info.id]
+
+
 def test_first_use_model_download_stage(lib, audio_dir, downloads, info):
     stages = []
 

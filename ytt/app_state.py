@@ -143,6 +143,17 @@ class AppState:
             self._enqueue(project, info)
         return new
 
+    def remove_source(self, slug: str, source_id: str) -> None:
+        before = {v.id for v in self.projects.get(slug).videos()}
+        project = self.projects.remove_source(slug, source_id)
+        gone = before - {v.id for v in project.videos()}
+        if gone:
+            self.queue.cancel_project(slug, gone)
+
+    def delete_project(self, slug: str) -> None:
+        self.projects.delete(slug)
+        self.queue.cancel_project(slug)
+
     # --- status / queue actions -----------------------------------------
     def video_status(self, slug: str) -> dict[str, str]:
         project = self.projects.get(slug)

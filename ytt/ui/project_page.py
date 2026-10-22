@@ -113,7 +113,7 @@ def _header(state: AppState, slug: str) -> None:
         )
 
         def delete() -> None:
-            state.projects.delete(slug)
+            state.delete_project(slug)
             ui.navigate.to("/")
 
         with ui.row().classes("justify-end w-full"):
@@ -299,7 +299,7 @@ def _source_row(state, slug, source, statuses, chips, counts, refresh, dialog_ho
                 ui.button("Refresh", on_click=do_refresh).props("flat dense no-caps")
 
             def do_remove(s=source) -> None:
-                state.projects.remove_source(slug, s.id)
+                state.remove_source(slug, s.id)
                 refresh()
 
             ui.button("Remove", on_click=do_remove).props("flat dense no-caps color=negative")

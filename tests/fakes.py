@@ -30,5 +30,5 @@ class FakeQueue:
     def stage_of(self, video_id):
         return None
 
-    def cancel_project(self, slug):
+    def cancel_project(self, slug, video_ids=None):
         return []
