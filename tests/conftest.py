@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 
@@ -44,3 +46,14 @@ def fake_ydl(monkeypatch):
     fake = FakeYdl()
     monkeypatch.setattr("ytt.youtube._ydl", fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def _keep_ytt_modules():
+    """NiceGUI's test reset pops the modules that define pages (and their parents,
+    including `ytt`) from sys.modules; restore them so later tests see a coherent package."""
+    saved = {k: v for k, v in sys.modules.items() if k == "ytt" or k.startswith("ytt.")}
+    yield
+    for k in [k for k in sys.modules if k == "ytt" or k.startswith("ytt.")]:
+        del sys.modules[k]
+    sys.modules.update(saved)

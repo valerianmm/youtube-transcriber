@@ -17,6 +17,7 @@ dev = ["pytest", "pytest-asyncio"]
 
 [tool.pytest.ini_options]
 markers = ["live: hits network/GPU/Claude"]
-addopts = "-m 'not live'"
+addopts = "-m 'not live' -p nicegui.testing.user_plugin"
+main_file = "tests/ui_main.py"
 asyncio_mode = "auto"
 pythonpath = ["."]
