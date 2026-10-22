@@ -9,6 +9,7 @@ done
 cd -P "$(dirname "$src")"
 
 command -v ffmpeg >/dev/null 2>&1 || { echo "ffmpeg is missing. Install it with: brew install ffmpeg" >&2; exit 1; }
+command -v brew >/dev/null 2>&1 || { echo "Homebrew is missing. Install it from https://brew.sh, then run: brew install ffmpeg pango" >&2; exit 1; }
 brew list pango >/dev/null 2>&1 || { echo "pango is missing. Install it with: brew install pango" >&2; exit 1; }
 export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
 

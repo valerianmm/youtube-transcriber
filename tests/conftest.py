@@ -50,10 +50,9 @@ def fake_ydl(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _keep_ytt_modules():
-    """NiceGUI's test reset pops the modules that define pages (and their parents,
-    including `ytt`) from sys.modules; restore them so later tests see a coherent package."""
+    """NiceGUI's test reset pops page-defining modules (and parents, incl. `ytt`) from
+    sys.modules; put back only what it removed."""
     saved = {k: v for k, v in sys.modules.items() if k == "ytt" or k.startswith("ytt.")}
     yield
-    for k in [k for k in sys.modules if k == "ytt" or k.startswith("ytt.")]:
-        del sys.modules[k]
-    sys.modules.update(saved)
+    for k in saved.keys() - sys.modules.keys():
+        sys.modules[k] = saved[k]

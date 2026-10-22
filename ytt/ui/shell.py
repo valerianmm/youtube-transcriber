@@ -28,7 +28,7 @@ def _new_project_dialog(state: AppState, on_created) -> ui.dialog:
 
         def create() -> None:
             try:
-                state.projects.create(name.value or "")
+                project = state.projects.create(name.value or "")
             except ValueError as e:
                 error.set_text(str(e))
                 error.set_visibility(True)
@@ -36,7 +36,7 @@ def _new_project_dialog(state: AppState, on_created) -> ui.dialog:
             name.set_value("")
             error.set_visibility(False)
             dialog.close()
-            on_created()
+            on_created(project)
 
         name.on("keydown.enter", create)
         with ui.row().classes("justify-end w-full"):
@@ -90,10 +90,24 @@ def frame(state: AppState, active: str | None):
                         ui.label(_counts(project)).classes("text-xs text-grey")
 
         project_list()
-        dialog = _new_project_dialog(state, project_list.refresh)
+        def created(project) -> None:
+            project_list.refresh()
+            ui.navigate.to(f"/project/{project.slug}")
+
+        dialog = _new_project_dialog(state, created)
+
+        seen = {"counts": [_counts(p) for p in state.projects.list()]}
+
+        def refresh_counts() -> None:
+            counts = [_counts(p) for p in state.projects.list()]
+            if counts != seen["counts"]:
+                seen["counts"] = counts
+                project_list.refresh()
+
+        ui.timer(5.0, refresh_counts)
         ui.button("+ New project", on_click=dialog.open).props("flat dense no-caps")
         ui.separator()
-        ui.link("Document types", "/doctypes")
+        ui.link("Document types", "/doc-types")
         ui.link("Settings", "/settings")
 
     with ui.column().classes("w-full max-w-4xl mx-auto"):

@@ -17,6 +17,7 @@ async def test_create_project_from_sidebar(user):
     user.find(marker="new-project-name").type("Kubernetes")
     user.find("Create").click()
     await user.should_see("Kubernetes")
+    await user.open("/settings")
     await user.should_see("0 videos · 0 docs")
 
 
