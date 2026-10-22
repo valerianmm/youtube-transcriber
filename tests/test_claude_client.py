@@ -75,3 +75,48 @@ def test_subscription_error_result_raises(monkeypatch):
     _stub_query(monkeypatch, [_result(is_error=True, subtype="error", result="Not logged in")])
     with pytest.raises(ClaudeError, match="Not logged in"):
         SubscriptionBackend().generate("p", "m")
+
+
+def _stub_api(monkeypatch, text, stop_reason):
+    import anthropic
+    from types import SimpleNamespace
+
+    message = SimpleNamespace(stop_reason=stop_reason,
+                              content=[SimpleNamespace(type="text", text=text)])
+
+    class Stream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get_final_message(self):
+            return message
+
+    class Client:
+        def __init__(self, api_key):
+            self.messages = SimpleNamespace(stream=lambda **kw: Stream())
+
+    monkeypatch.setattr(anthropic, "Anthropic", Client)
+
+
+def test_api_backend_returns_text(monkeypatch):
+    _stub_api(monkeypatch, "# Doc", "end_turn")
+    assert ApiKeyBackend("k").generate("p", "m") == "# Doc"
+
+
+def test_api_backend_cut_off_raises(monkeypatch):
+    _stub_api(monkeypatch, "# Doc, half", "max_tokens")
+    with pytest.raises(ClaudeError, match="cut off because it was too long"):
+        ApiKeyBackend("k").generate("p", "m")
+
+
+def test_subscription_cut_off_raises(monkeypatch):
+    from claude_agent_sdk import AssistantMessage, TextBlock
+    _stub_query(monkeypatch, [
+        AssistantMessage(content=[TextBlock(text="half")], model="m", stop_reason="max_tokens"),
+        _result(),
+    ])
+    with pytest.raises(ClaudeError, match="cut off because it was too long"):
+        SubscriptionBackend().generate("p", "m")

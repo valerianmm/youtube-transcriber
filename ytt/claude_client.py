@@ -21,6 +21,12 @@ class ClaudeError(Exception):
     """Message is shown to the user as is."""
 
 
+CUT_OFF = (
+    "Claude's answer was cut off because it was too long. "
+    "Try a shorter document type or a smaller project."
+)
+
+
 class Backend(Protocol):
     def generate(self, prompt: str, model: str) -> str: ...
 
@@ -69,6 +75,8 @@ class SubscriptionBackend:
         options = subscription_options(model)
         parts: list[str] = []
         async for msg in query(prompt=prompt, options=options):
+            if getattr(msg, "stop_reason", None) == "max_tokens":
+                raise ClaudeError(CUT_OFF)
             if isinstance(msg, AssistantMessage):
                 parts.extend(b.text for b in msg.content if isinstance(b, TextBlock))
             elif isinstance(msg, ResultMessage) and msg.is_error:
@@ -100,11 +108,14 @@ class ApiKeyBackend:
                 system=SYSTEM,
                 messages=[{"role": "user", "content": prompt}],
             ) as stream:
-                text = stream.get_final_text()
+                message = stream.get_final_message()
         except anthropic.APIError as e:
             raise ClaudeError(getattr(e, "message", None) or str(e)) from e
         except Exception as e:
             raise ClaudeError(f"Claude API request failed: {e}") from e
+        if message.stop_reason == "max_tokens":
+            raise ClaudeError(CUT_OFF)
+        text = "".join(b.text for b in message.content if b.type == "text")
         if not text.strip():
             raise ClaudeError("Claude returned an empty response.")
         return text
