@@ -27,6 +27,7 @@ class AppState:
         self.queue = queue_factory(self.library, paths.audio_cache)
         self.doctypes = DocTypeStore(paths)
         self.documents = DocumentStore(self.projects)
+        self.generating: set[str] = set()  # project slugs with a Claude run in flight
 
     # --- startup ---------------------------------------------------------
     def startup(self) -> None:

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date
 
 import pytest
@@ -202,3 +203,72 @@ async def test_doctype_duplicate_rename_delete(user, state):
     user.find(marker="confirm-action").click()
     await user.should_not_see(marker="type-delete-briefing")
     assert [d.name for d in state.doctypes.list()] == ["Step-by-step guide", "Summary (copy)"]
+
+
+async def test_regenerate_blocked_while_videos_pending(user, state, fake_backend):
+    slug = make_project(state, "Mixed", done=["d1"])
+    await generate(user, slug)
+    state.projects.add_source(slug, Source(kind="video", url=video_url("q9"), title="More", videos=[vi("q9")]))
+    user.find(marker="doc-regenerate").click()
+    await user.should_see("Waiting for 1 videos to finish")
+    assert len(fake_backend.prompts) == 1
+    await user.should_not_see(marker="confirm-action")
+
+
+async def test_regenerate_confirm_lists_left_out(user, state, fake_backend):
+    slug = make_project(state, "Left", done=["d1"])
+    await generate(user, slug)
+    state.library.mark_failed(vi("f1"), "boom")
+    state.projects.add_source(slug, Source(kind="video", url=video_url("f1"), title="F", videos=[vi("f1")]))
+    user.find(marker="doc-regenerate").click()
+    await user.should_see("Left out (no transcript): Title f1")
+
+
+async def test_generating_slug_disables_buttons_and_refuses_second(user, state, ready_slug, fake_backend):
+    state.generating.add(ready_slug)  # a run in flight from a previous page load
+    await user.open(f"/project/{ready_slug}")
+    await user.should_see("Generating…")
+    assert not user.find("+ Generate new…").elements.pop().enabled
+    user.find("+ Generate new…").click()  # disabled: no dialog, no call
+    assert fake_backend.prompts == []
+    state.generating.discard(ready_slug)
+
+
+async def test_regenerate_claude_error_keeps_document(user, state, ready_slug, fake_backend, monkeypatch):
+    await generate(user, ready_slug)
+    meta = state.projects.get(ready_slug).documents[0]
+    before = state.documents.read(ready_slug, meta.file)[0]
+    monkeypatch.setattr("ytt.app_state.backend_for", lambda s: FakeBackend(ClaudeError("regen failed")))
+    ed = editor(user)
+    ed.set_value("my unsaved")
+    user.find(marker="doc-regenerate").click()
+    user.find(marker="confirm-action").click()
+    await user.should_see("regen failed")
+    assert state.documents.read(ready_slug, meta.file)[0] == before
+    assert ed.value == "my unsaved"
+    assert ready_slug not in state.generating
+
+
+async def test_export_with_unsaved_changes_asks(user, state, ready_slug, fake_backend):
+    await generate(user, ready_slug)
+    meta = state.projects.get(ready_slug).documents[0]
+    editor(user).set_value("fresh text")
+    user.find(marker="doc-export-md").click()
+    await user.should_see("Save changes before exporting?")
+    user.find(marker="export-save-first").click()
+    await user.should_see("Exported the saved version")
+    exported = state.projects.project_dir(ready_slug) / "exports" / f"{meta.file[:-3]}.md"
+    assert exported.read_text() == "fresh text"
+
+
+async def test_doctype_switch_with_unsaved_edits_confirms(user, state):
+    await user.open("/doc-types")
+    user.find(marker="type-summary").click()
+    editor(user, "doctype-editor").set_value("changed")
+    user.find(marker="type-step-by-step-guide").click()
+    await user.should_see("This document type has unsaved changes.")
+    assert editor(user, "doctype-editor").value == "changed"
+    user.find(marker="confirm-action").click()
+    await asyncio.sleep(0.3)
+    assert editor(user, "doctype-editor").value.startswith("## Structure")
+    assert user.find(marker="doctype-name").elements.pop().value == "Step-by-step guide"

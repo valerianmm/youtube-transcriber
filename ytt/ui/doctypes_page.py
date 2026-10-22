@@ -15,7 +15,7 @@ def _one_line(text: str | None) -> str:
 
 def doctypes_content(state: AppState) -> None:
     store = state.doctypes
-    cur: dict = {"slug": None, "fp": None}
+    cur: dict = {"slug": None, "fp": None, "saved": None}
     host = ui.element("div")
     ui.label("Document types").classes("text-xl")
 
@@ -41,7 +41,7 @@ def doctypes_content(state: AppState) -> None:
                 ui.button("Duplicate", on_click=lambda d=dt: duplicate(d.slug)).props(
                     "flat dense no-caps"
                 ).mark(f"type-duplicate-{dt.slug}")
-                ui.button("Rename", on_click=lambda d=dt: rename_dialog(d)).props("flat dense no-caps").mark(
+                ui.button("Rename", on_click=lambda d=dt: guarded(lambda: rename_dialog(d), d.slug == cur["slug"])).props("flat dense no-caps").mark(
                     f"type-rename-{dt.slug}"
                 )
                 ui.button("Delete", on_click=lambda d=dt: delete(d)).props(
@@ -58,7 +58,7 @@ def doctypes_content(state: AppState) -> None:
             ui.notify(f"Couldn't read the document type: {e}", type="negative")
             type_list.refresh()
             return False
-        cur.update(slug=slug, fp=fp)
+        cur.update(slug=slug, fp=fp, saved=(dt.name, dt.description, dt.body))
         name.set_value(dt.name)
         description.set_value(dt.description)
         body.set_value(dt.body)
@@ -66,8 +66,21 @@ def doctypes_content(state: AppState) -> None:
         placeholder.set_visibility(False)
         return True
 
+    def dirty() -> bool:
+        return cur["slug"] is not None and cur["saved"] != (
+            _one_line(name.value), _one_line(description.value), body.value or ""
+        )
+
+    def guarded(action, discards: bool) -> None:
+        """Run action(), asking first if it would discard unsaved edits of the open type."""
+        if discards and dirty():
+            confirm_dialog(host, "Discard changes?", "This document type has unsaved changes.",
+                           action, action="Discard", color="negative")
+        else:
+            action()
+
     def select(slug: str) -> None:
-        load(slug)
+        guarded(lambda: load(slug), slug != cur["slug"])
 
     # --- save ------------------------------------------------------------
     def save(expect=None) -> None:
@@ -83,6 +96,7 @@ def doctypes_content(state: AppState) -> None:
         dt = DocType(slug, new_name, _one_line(description.value), body.value or "")
         try:
             cur["fp"] = store.save(dt, cur["fp"] if expect is None else expect)
+            cur["saved"] = (dt.name, dt.description, dt.body)
         except ConflictError:
             conflict_dialog(host, "document type", lambda: save(ANY), lambda: load(slug))
             return

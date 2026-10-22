@@ -17,7 +17,7 @@ def _day(stamp: str | None) -> str:
 
 
 def documents_panel(state: AppState, slug: str) -> None:
-    cur: dict = {"file": None, "fp": None, "saved": "", "busy": False}
+    cur: dict = {"file": None, "fp": None, "saved": "", "was_busy": False}
     host = ui.element("div")  # dialogs live here
     gate_buttons: list[ui.button] = []  # disabled while a generation runs
 
@@ -28,8 +28,11 @@ def documents_panel(state: AppState, slug: str) -> None:
             new_button = ui.button("+ Generate new…", on_click=lambda: generate_dialog())
             new_button.props("no-caps")
             gate_buttons.append(new_button)
-            spinner = ui.spinner(size="lg")
-            spinner.set_visibility(False)
+            busy_note = ui.row().classes("items-center gap-2")
+            with busy_note:
+                ui.spinner(size="lg")
+                ui.label("Generating…")
+            busy_note.set_visibility(False)
             doc_list_slot = ui.column().classes("w-full gap-1")
         with ui.column().classes("grow") as pane:
             with ui.row().classes("items-center gap-2"):
@@ -52,6 +55,21 @@ def documents_panel(state: AppState, slug: str) -> None:
                 )
     placeholder = ui.label("Generate a document, or select one to edit.").classes("text-grey")
     pane.set_visibility(False)
+
+    def sync_busy() -> None:
+        busy = slug in state.generating
+        busy_note.set_visibility(busy)
+        for b in gate_buttons:
+            b.set_enabled(not busy)
+        if cur["was_busy"] and not busy:
+            doc_list.refresh()  # a run started on another page finished
+        cur["was_busy"] = busy
+
+    ui.timer(1.0, sync_busy)
+
+    def waiting_count(left_out) -> int:
+        statuses = state.video_status(slug)
+        return sum(1 for v in left_out if statuses.get(v.id) in _WAITING)
 
     def dirty() -> bool:
         return cur["file"] is not None and editor.value != cur["saved"]
@@ -82,6 +100,7 @@ def documents_panel(state: AppState, slug: str) -> None:
 
     with doc_list_slot:
         doc_list()
+    sync_busy()
 
     def load(file: str) -> bool:
         try:
@@ -145,7 +164,33 @@ def documents_panel(state: AppState, slug: str) -> None:
                        action="Delete", color="negative")
 
     # --- export ----------------------------------------------------------
-    async def export(kind: str) -> None:
+    def export(kind: str) -> None:
+        if not dirty():
+            return do_export(kind)
+        host.clear()
+        with host, ui.dialog() as dialog, ui.card().classes("w-96"):
+            ui.label("Save changes before exporting?").classes("text-lg font-medium")
+            ui.label("The editor has unsaved changes; an export uses the saved version.")
+
+            def save_and_export() -> None:
+                dialog.close()
+                save()
+                if not dirty():
+                    return do_export(kind)  # a conflict leaves it dirty: nothing exported
+
+            def export_saved() -> None:
+                dialog.close()
+                return do_export(kind)
+
+            with ui.row().classes("justify-end w-full"):
+                ui.button("Cancel", on_click=dialog.close).props("flat")
+                ui.button("Export saved version", on_click=export_saved).props("flat").mark(
+                    "export-saved"
+                )
+                ui.button("Save & export", on_click=save_and_export).mark("export-save-first")
+        dialog.open()
+
+    async def do_export(kind: str) -> None:
         file = cur["file"]
         try:
             if kind == "md":
@@ -163,27 +208,32 @@ def documents_panel(state: AppState, slug: str) -> None:
 
     # --- generate --------------------------------------------------------
     async def run_generate(doc_type: str, name: str, replace_file: str | None = None) -> bool:
-        if cur["busy"]:
+        if slug in state.generating:
+            ui.notify("A document is already being generated for this project", type="warning")
             return False
-        cur["busy"] = True
-        for b in gate_buttons:
-            b.set_enabled(False)
-        spinner.set_visibility(True)
+        state.generating.add(slug)
+        sync_busy()
         try:
             meta = await run.io_bound(state.generate, slug, doc_type, name, replace_file)
-        except ClaudeError as e:
-            message_dialog(host, "Claude couldn't generate the document", str(e), settings_link=True)
-            return False
         except Exception as e:  # noqa: BLE001
-            message_dialog(host, "Generation failed", str(e))
+            state.generating.discard(slug)
+            try:
+                if isinstance(e, ClaudeError):
+                    message_dialog(host, "Claude couldn't generate the document", str(e),
+                                   settings_link=True)
+                else:
+                    message_dialog(host, "Generation failed", str(e))
+                sync_busy()
+            except RuntimeError:
+                pass  # the page was closed or reloaded meanwhile
             return False
-        finally:
-            spinner.set_visibility(False)
-            cur["busy"] = False
-            for b in gate_buttons:
-                b.set_enabled(True)
-        doc_list.refresh()
-        select_after(meta.file)
+        state.generating.discard(slug)
+        try:
+            sync_busy()
+            doc_list.refresh()
+            select_after(meta.file)
+        except RuntimeError:
+            pass  # the page was closed or reloaded meanwhile; the new page's timer refreshes
         return True
 
     def select_after(file: str) -> None:
@@ -195,10 +245,23 @@ def documents_panel(state: AppState, slug: str) -> None:
         meta = next((m for m in state.projects.get(slug).documents if m.file == file), None)
         if meta is None:
             return
-        confirm_dialog(
-            host, "Regenerate?",
+        ready, left_out = state.ready_to_generate(slug)
+        if not ready:
+            waiting = waiting_count(left_out)
+            message_dialog(
+                host, "Can't regenerate yet",
+                f"Waiting for {waiting} videos to finish" if waiting
+                else "No transcribed videos yet",
+            )
+            return
+        text = (
             "The current version goes to history and is replaced by a new one. "
-            "Unsaved edits are lost.",
+            "Unsaved edits are lost."
+        )
+        if left_out:
+            text += "\n\nLeft out (no transcript): " + ", ".join(v.title for v in left_out)
+        confirm_dialog(
+            host, "Regenerate?", text,
             lambda: run_generate(meta.doc_type, meta.name, file),
             action="Regenerate", color="negative",
         )
@@ -210,7 +273,7 @@ def documents_panel(state: AppState, slug: str) -> None:
             return
         ready, left_out = state.ready_to_generate(slug)
         statuses = state.video_status(slug)
-        waiting = sum(1 for v in left_out if statuses.get(v.id) in _WAITING)
+        waiting = waiting_count(left_out)
         names = {t.slug: t.name for t in types}
         host.clear()
         with host, ui.dialog() as dialog, ui.card().classes("w-[32rem] max-w-full"):
@@ -239,5 +302,5 @@ def documents_panel(state: AppState, slug: str) -> None:
             with ui.row().classes("justify-end w-full"):
                 ui.button("Cancel", on_click=dialog.close).props("flat")
                 go_button = ui.button("Generate", on_click=go).mark("gen-go")
-                go_button.set_enabled(ready and not cur["busy"])
+                go_button.set_enabled(ready and slug not in state.generating)
         dialog.open()
