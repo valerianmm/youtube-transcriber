@@ -9,6 +9,7 @@ from ytt.library import sanitize, trim_utf8_bytes
 from ytt.pdf import markdown_to_pdf
 from ytt.projects import DocumentMeta, ProjectStore
 from ytt.storage import (
+    ANY,
     ConflictError,
     Fingerprint,
     fingerprint,
@@ -81,11 +82,11 @@ class DocumentStore:
     def read(self, slug: str, file: str) -> tuple[str, Fingerprint]:
         return read_text(self._path(slug, file))
 
-    def save(self, slug: str, file: str, text: str, expect: Fingerprint) -> Fingerprint:
+    def save(self, slug: str, file: str, text: str, expect: Fingerprint | object) -> Fingerprint:
         with self._lock:
             path = self._path(slug, file)
             current = fingerprint(path)
-            if current != expect:
+            if expect is not ANY and current != expect:
                 raise ConflictError(path, current)
             self._snapshot(slug, file)
             fp = atomic_write_text(path, text, expect=expect)

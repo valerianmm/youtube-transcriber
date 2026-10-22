@@ -8,6 +8,7 @@ from nicegui import events, run, ui
 from ytt.app_state import AppState
 from ytt.config import LANGUAGES, WHISPER_MODELS
 from ytt.library import VideoRecord
+from ytt.ui.documents_panel import documents_panel
 from ytt.urls import classify, split_urls
 from ytt.youtube import VideoInfo
 
@@ -72,6 +73,7 @@ def project_content(state: AppState, slug: str) -> None:
     with ui.row().classes("gap-2"):
         ui.button("Retry failed", on_click=lambda: _retry(state, slug)).props("flat no-caps")
         ui.button("Cancel queued", on_click=lambda: _cancel(state, slug)).props("flat no-caps")
+    documents_panel(state, slug)
 
 
 def _retry(state: AppState, slug: str) -> None:

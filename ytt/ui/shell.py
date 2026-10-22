@@ -115,6 +115,7 @@ def frame(state: AppState, active: str | None):
 
 
 def register_pages(state: AppState) -> None:
+    from ytt.ui.doctypes_page import doctypes_content
     from ytt.ui.project_page import project_content
     from ytt.ui.settings_page import settings_content
 
@@ -132,6 +133,11 @@ def register_pages(state: AppState) -> None:
     def settings() -> None:
         with frame(state, "settings"):
             settings_content(state)
+
+    @ui.page("/doc-types")
+    def doc_types() -> None:
+        with frame(state, "doc-types"):
+            doctypes_content(state)
 
     @ui.page("/project/{slug}")
     def project(slug: str) -> None:
